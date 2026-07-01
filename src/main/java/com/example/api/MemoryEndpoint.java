@@ -17,9 +17,7 @@ import com.example.application.retrievers.RagCompletionRetriever;
 import com.example.application.retrievers.Retriever;
 import com.example.domain.KnowledgeGraph;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 @Acl(allow = @Acl.Matcher(principal = Acl.Principal.INTERNET))
 @HttpEndpoint("/api")
@@ -37,7 +35,7 @@ public class MemoryEndpoint {
   public record RememberRequest(String text) {}
   public record RememberResponse(KnowledgeGraph graph, String commit) {}
   public record RecallRequest(String question, String strategy) {}
-  public record RecallResponse(String answer, List<String> context, String strategy) {}
+  public record RecallResponse(String answer, List<Retriever.Source> context, String strategy) {}
   public record StatsResponse(int chunks, int entities, int commits) {}
   public record RecentResponse(List<String> chunks) {}
   public record CompareRequest(String question) {}

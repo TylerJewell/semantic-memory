@@ -7,10 +7,10 @@
         <version>3.6.0</version>
     </parent>
     <groupId>com.example</groupId>
-    <artifactId>cognee</artifactId>
+    <artifactId>semantic-memory</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
-    <name>cognee</name>
+    <name>semantic-memory</name>
     <dependencies>
         <!-- Your dependencies go here -->
     </dependencies>

@@ -7,9 +7,9 @@ import java.util.List;
  * The structured knowledge graph the LLM extracts from a piece of text.
  *
  * <p>This record is the "structured output" contract. The Akka agent uses
- * {@code responseConformsTo(KnowledgeGraph.class)} to force Gemini to return JSON
- * matching this shape — which is exactly the job Cognee delegates to the Python
- * {@code instructor}/{@code LiteLLM} layer. Here it is native to the SDK.
+ * {@code responseConformsTo(KnowledgeGraph.class)} to force the model to return
+ * JSON matching this shape; schema generation and validation are done by the
+ * SDK's LangChain4j integration — no external schema/coercion library needed.
  */
 public record KnowledgeGraph(
     @Description("All entities (people, things, concepts, technologies) mentioned in the text")

@@ -7,10 +7,7 @@ import com.example.application.QaAgent;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Combine vector chunks + graph neighborhood into one context, then answer.
- * Mirrors cognee/modules/retrieval/hybrid_retriever.py.
- */
+/** Vector chunks + graph neighborhood combined into a single answering context. */
 public final class HybridRetriever implements Retriever {
 
   private final ComponentClient client;
@@ -22,7 +19,8 @@ public final class HybridRetriever implements Retriever {
   @Override
   public Answer answer(String question) {
     double[] qv = GeminiEmbeddings.embed(question);
-    List<String> chunks = FlureeClient.similar(qv, 5);
+    List<FlureeClient.Hit> hits = FlureeClient.similarWithScores(qv, 5);
+    List<String> chunks = hits.stream().map(FlureeClient.Hit::text).toList();
     List<String> triples = FlureeClient.entityNeighborhood(chunks, 25);
 
     StringBuilder ctx = new StringBuilder();
@@ -33,16 +31,15 @@ public final class HybridRetriever implements Retriever {
       ctx.append("Graph triples:\n").append(String.join("\n", triples));
     }
 
-    String text =
-        client
-            .forAgent()
-            .inSession("recall")
-            .method(QaAgent::answer)
-            .invoke(new QaAgent.Question(question, ctx.toString()));
+    String text = client
+        .forAgent()
+        .inSession("recall")
+        .method(QaAgent::answer)
+        .invoke(new QaAgent.Question(question, ctx.toString()));
 
-    List<String> sources = new ArrayList<>();
-    sources.addAll(chunks);
-    sources.addAll(triples);
+    List<Source> sources = new ArrayList<>();
+    hits.forEach(h -> sources.add(new Source(h.text(), h.score())));
+    triples.forEach(t -> sources.add(Source.unscored(t)));
     return new Answer(text, sources, Strategy.HYBRID.name());
   }
 }

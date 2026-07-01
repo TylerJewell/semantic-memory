@@ -7,13 +7,13 @@ import com.example.application.QaAgent;
 import java.util.List;
 
 /**
- * Vanilla vector RAG: embed the question, cosine-search Fluree for the closest
- * chunks, then ask the Q&amp;A agent to answer from that text. This is the
- * original {@code MemoryEndpoint.recall} path lifted into the new retriever
- * interface so the endpoint can dispatch by strategy.
+ * Vector RAG: embed the question, cosine-search Fluree for the closest chunks,
+ * ask the Q&amp;A agent to answer from the joined text. Scores are the cosine
+ * similarities returned by Fluree, threaded through to the UI.
  */
 public final class RagCompletionRetriever implements Retriever {
 
+  private static final int TOP_K = 3;
   private final ComponentClient client;
 
   public RagCompletionRetriever(ComponentClient client) {
@@ -23,14 +23,14 @@ public final class RagCompletionRetriever implements Retriever {
   @Override
   public Answer answer(String question) {
     double[] qv = GeminiEmbeddings.embed(question);
-    List<String> chunks = FlureeClient.similar(qv, 3);
-    String joined = String.join("\n---\n", chunks);
-    String text =
-        client
-            .forAgent()
-            .inSession("recall")
-            .method(QaAgent::answer)
-            .invoke(new QaAgent.Question(question, joined));
-    return new Answer(text, chunks, Strategy.RAG_COMPLETION.name());
+    List<FlureeClient.Hit> hits = FlureeClient.similarWithScores(qv, TOP_K);
+    List<Source> sources = hits.stream().map(h -> new Source(h.text(), h.score())).toList();
+    String joined = String.join("\n---\n", hits.stream().map(FlureeClient.Hit::text).toList());
+    String text = client
+        .forAgent()
+        .inSession("recall")
+        .method(QaAgent::answer)
+        .invoke(new QaAgent.Question(question, joined));
+    return new Answer(text, sources, Strategy.RAG_COMPLETION.name());
   }
 }

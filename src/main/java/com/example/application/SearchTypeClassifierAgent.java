@@ -4,8 +4,8 @@ import akka.javasdk.agent.Agent;
 import akka.javasdk.annotations.Component;
 
 /**
- * Classifies a question into one of our supported retrieval strategies.
- * Mirrors cognee's select_search_type.py prompt, narrowed to what we support.
+ * Classifies a question into one of the supported retrieval strategies. Powers
+ * the FEELING_LUCKY retriever's "let the system pick" mode.
  */
 @Component(id = "search-type-classifier")
 public class SearchTypeClassifierAgent extends Agent {

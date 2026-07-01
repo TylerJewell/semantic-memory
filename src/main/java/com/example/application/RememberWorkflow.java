@@ -8,15 +8,16 @@ import akka.javasdk.workflow.Workflow;
 import com.example.domain.KnowledgeGraph;
 
 /**
- * The durable "remember" pipeline — the Akka control plane that replaces Cognee's
- * relational-row run state + best-effort rollback ledger.
+ * The durable "remember" pipeline.
  *
- * <p>Two steps: (1) extract a graph with the LLM, (2) embed + persist to Fluree.
- * If a step fails it is retried and can resume after a crash, rather than
- * restarting from scratch (Cognee's behaviour). State is event-sourced.
+ * <p>Two steps: (1) extract a graph with the LLM, (2) embed the chunk and persist
+ * the combined transaction to Fluree. If a step fails it is retried at that
+ * step and can resume across a process restart — the Akka Workflow runtime
+ * owns the state journal, not the code.
  *
- * <p>The {@link MemoryEndpoint} also exposes a synchronous path for snappy UI
- * feedback; this workflow is the production-shaped, crash-safe version.
+ * <p>The {@link MemoryEndpoint} also exposes a synchronous inline path for
+ * snappy UI feedback; this workflow is the production-shaped, crash-safe version
+ * for larger imports.
  */
 @Component(id = "remember")
 public class RememberWorkflow extends Workflow<RememberWorkflow.State> {

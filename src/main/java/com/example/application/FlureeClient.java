@@ -13,13 +13,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Thin client over the local Fluree HTTP server (the unified graph + vector +
- * provenance store that replaces Cognee's Kuzu/Neo4j + LanceDB + lexical layers).
+ * Thin client over the local Fluree HTTP server — the unified graph + vector +
+ * provenance store this project uses in place of a separate triple store, vector
+ * DB, and lexical index.
  *
  * <p>{@code remember} writes the extracted graph and the chunk's embedding in one
- * immutable transaction (Fluree returns a commit hash = built-in provenance).
- * {@code similar} does an inline cosine-similarity vector search. {@code sparql}
- * runs a graph query for display.
+ * immutable transaction (Fluree returns a cryptographic commit hash — the audit
+ * trail). {@code similarWithScores} does an inline cosine-similarity vector
+ * search. {@code entityNeighborhood} walks one hop of the graph from matched
+ * chunks. {@code bm25Search} runs full-text keyword ranking.
  */
 public final class FlureeClient {
 
@@ -109,7 +111,10 @@ public final class FlureeClient {
       if (arr.isArray()) {
         for (JsonNode row : arr) {
           if (row.isArray() && row.size() >= 2) {
-            out.add(new Hit(row.get(0).asText(), row.get(1).asDouble()));
+            String txt = row.get(0).asText();
+            if (!txt.isBlank()) {
+              out.add(new Hit(txt, row.get(1).asDouble()));
+            }
           }
         }
       }
@@ -146,7 +151,8 @@ public final class FlureeClient {
       if (arr.isArray()) {
         for (JsonNode row : arr) {
           if (row.isArray() && row.size() > 0) {
-            out.add(row.get(0).asText());
+            String txt = row.get(0).asText();
+            if (!txt.isBlank()) out.add(txt);
           }
         }
       }
@@ -164,8 +170,8 @@ public final class FlureeClient {
   /**
    * For each provided chunk text, walk to entities mentionedIn that chunk and
    * pull one hop of outgoing predicates. Returns formatted triples like
-   * {@code "Akka --provides--> Resilience"}. Mirrors Cognee's
-   * resolve_edges_to_text but in our flatter Fluree shape.
+   * {@code "Akka --provides--> Resilience"} — the graph context the QaAgent uses
+   * alongside vector chunks in HYBRID / GRAPH strategies.
    */
   public static List<String> entityNeighborhood(List<String> chunkTexts, int limit) {
     if (chunkTexts.isEmpty()) {
@@ -246,48 +252,22 @@ public final class FlureeClient {
     }
   }
 
-  /** Count chunks, entities, and commits in the ledger. */
+  /** Count chunks (subjects with ex:text), entities (subjects with ex:name), and commits. */
   public static Stats stats() {
-    int chunks = countByType("ex:Chunk");
-    int commits = 0;
-    try {
-      JsonNode arr = OM.readTree(sparql(
-          "SELECT (COUNT(?s) AS ?n) FROM <" + LEDGER + "> WHERE { ?s a <ex:Chunk> }"));
-      // Result is JSON-LD SPARQL; fall back gracefully.
-    } catch (Exception ignored) {
-    }
-    // Entities = anything mentionedIn a chunk
-    int entities = 0;
-    try {
-      Map<String, Object> q = new LinkedHashMap<>();
-      q.put("@context", CONTEXT);
-      q.put("from", LEDGER);
-      q.put("select", List.of("(count(distinct ?s) as ?n)"));
-      q.put("where", List.of(Map.of("@id", "?s", "ex:mentionedIn", Map.of("@id", "?c"))));
-      String resp = post(
-          "/v1/fluree/query?ledger=" + LEDGER, OM.writeValueAsString(q), "application/json");
-      JsonNode arr = OM.readTree(resp);
-      if (arr.isArray() && arr.size() > 0 && arr.get(0).isArray() && arr.get(0).size() > 0) {
-        entities = arr.get(0).get(0).asInt();
-      }
-    } catch (Exception ignored) {
-    }
-    commits = chunks; // one commit per remember in this demo
-    return new Stats(chunks, entities, commits);
+    int chunks = sparqlCount("?s <" + EX + "text> ?v");
+    int entities = sparqlCount("?s <" + EX + "name> ?v");
+    // In this demo one Fluree transaction = one remember, so commits tracks chunks.
+    return new Stats(chunks, entities, chunks);
   }
 
-  private static int countByType(String typeIri) {
+  private static int sparqlCount(String pattern) {
     try {
-      Map<String, Object> q = new LinkedHashMap<>();
-      q.put("@context", CONTEXT);
-      q.put("from", LEDGER);
-      q.put("select", List.of("(count(?s) as ?n)"));
-      q.put("where", List.of(Map.of("@id", "?s", "@type", typeIri)));
-      String resp = post(
-          "/v1/fluree/query?ledger=" + LEDGER, OM.writeValueAsString(q), "application/json");
-      JsonNode arr = OM.readTree(resp);
-      if (arr.isArray() && arr.size() > 0 && arr.get(0).isArray() && arr.get(0).size() > 0) {
-        return arr.get(0).get(0).asInt();
+      String q =
+          "SELECT (COUNT(DISTINCT ?s) AS ?n) FROM <" + LEDGER + "> WHERE { " + pattern + " }";
+      JsonNode root = OM.readTree(sparql(q));
+      JsonNode bindings = root.at("/results/bindings");
+      if (bindings.isArray() && bindings.size() > 0) {
+        return bindings.get(0).at("/n/value").asInt(0);
       }
     } catch (Exception ignored) {
     }

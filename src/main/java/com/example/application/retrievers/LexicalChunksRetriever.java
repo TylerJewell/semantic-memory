@@ -4,8 +4,8 @@ import com.example.application.FlureeClient;
 import java.util.List;
 
 /**
- * BM25 keyword search via Fluree full-text index. Degrades to empty list if
- * the index is not configured. Mirrors cognee's lexical_retriever (no LLM).
+ * BM25 keyword search via Fluree full-text index. No LLM call. Degrades to an
+ * empty list if the BM25 index has not been created on the ledger.
  */
 public final class LexicalChunksRetriever implements Retriever {
 
@@ -22,6 +22,7 @@ public final class LexicalChunksRetriever implements Retriever {
   @Override
   public Answer answer(String question) {
     List<String> chunks = FlureeClient.bm25Search(question, limit);
-    return new Answer(String.join("\n---\n", chunks), chunks, Strategy.LEXICAL.name());
+    List<Source> sources = chunks.stream().map(Source::unscored).toList();
+    return new Answer(String.join("\n---\n", chunks), sources, Strategy.LEXICAL.name());
   }
 }

@@ -105,7 +105,9 @@
              border:1px solid var(--line); border-radius:6px; margin:4px 0; font-size:12.5px;
              overflow-wrap:anywhere; word-break:break-word; }
   .ctx-hit .rank { color:var(--accent); font-family:ui-monospace,Consolas,monospace; font-weight:700; min-width:18px; flex-shrink:0; }
-  .ctx-hit .score { color:var(--muted); font-family:ui-monospace,Consolas,monospace; font-size:11px; }
+  .ctx-hit .score { color:var(--accent); font-family:ui-monospace,Consolas,monospace; font-size:11px;
+                    background:#0e1a13; border:1px solid #1e3a29; padding:1px 6px; border-radius:4px;
+                    flex-shrink:0; white-space:nowrap; }
   .compare-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:8px; }
   .compare-cell { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:10px;
                   font-size:12.5px; min-width:0; overflow-wrap:anywhere; }
@@ -228,7 +230,7 @@
 
         <div class="strategies">
           <span class="muted small">Strategy:</span>
-          <button class="strat active" data-strat="RAG"          title="Vector search → LLM answer (Cognee's default)">RAG</button>
+          <button class="strat active" data-strat="RAG"          title="Vector search → LLM answer (the classic RAG baseline)">RAG</button>
           <button class="strat"        data-strat="CHUNKS"       title="Raw chunks ranked by vector similarity. No LLM call.">Chunks</button>
           <button class="strat"        data-strat="GRAPH"        title="Walk the entity graph from matched chunks → LLM answer">Graph</button>
           <button class="strat"        data-strat="HYBRID"       title="Combine chunks + triples → LLM answer">Hybrid</button>
@@ -438,8 +440,19 @@ $('recallBtn').onclick = async () => {
   btn.disabled = true; out.innerHTML = `<span class="muted small">Searching memory (${currentStrategy}) &amp; answering…</span>`;
   try {
     const res = await call('/api/recall', { question, strategy: currentStrategy });
-    const ctx = (res.context||[]).map((c,i) =>
-      `<div class="ctx-hit"><span class="rank">${i+1}</span><span>${esc(c)}</span></div>`).join('');
+    const ctx = (res.context||[]).map((c,i) => {
+      // context items are now {text, score}; score is null for graph triples
+      const text = (c && typeof c === 'object') ? (c.text || '') : String(c);
+      const score = (c && typeof c === 'object') ? c.score : null;
+      const scoreBadge = (score != null)
+        ? `<span class="score" title="cosine similarity">${score.toFixed(3)}</span>`
+        : `<span class="score" title="graph-derived">graph</span>`;
+      return `<div class="ctx-hit">
+                <span class="rank">${i+1}</span>
+                <span style="flex:1">${esc(text)}</span>
+                ${scoreBadge}
+              </div>`;
+    }).join('');
     out.innerHTML = `<div class="answer">${esc(res.answer)}</div>
       <div style="margin-top:10px"><b class="muted small">Retrieved context · strategy: ${esc(res.strategy)}</b>
         ${ctx || '<div class="muted small">nothing matched</div>'}</div>`;

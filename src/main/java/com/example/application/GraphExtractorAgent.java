@@ -5,12 +5,13 @@ import akka.javasdk.annotations.Component;
 import com.example.domain.KnowledgeGraph;
 
 /**
- * The "smart reader" — the one piece worth keeping from Cognee's design.
+ * The "smart reader" — the LLM step that turns raw text into structured graph.
  *
- * <p>Reads raw text and returns a typed {@link KnowledgeGraph}. The
- * {@code responseConformsTo} call makes the SDK generate a JSON schema from the
- * record and validate the model's reply against it, replacing Cognee's
- * instructor + LiteLLM structured-output machinery.
+ * <p>Reads a chunk of text and returns a typed {@link KnowledgeGraph}. The
+ * {@code responseConformsTo} call makes the Akka SDK generate a JSON schema from
+ * the record and validate the model's reply against it — no external
+ * structured-output library needed; LangChain4j's schema enforcement does the
+ * work under the hood.
  */
 @Component(id = "graph-extractor")
 public class GraphExtractorAgent extends Agent {

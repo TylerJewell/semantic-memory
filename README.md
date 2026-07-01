@@ -1,102 +1,138 @@
 # semantic-memory
 
-An AI-memory system — the durable, queryable knowledge base an agent uses to remember facts across sessions and conversations — built on **Akka SDK 3.6** for the control plane and **Fluree** for the unified graph + vector + provenance store.
+A durable, queryable knowledge base that AI agents can share — built on
+**Akka SDK 3.6** for the control plane and **Fluree** as the unified graph +
+vector + provenance store.
 
-Positioned against [Cognee](https://github.com/topoteretes/cognee) (a well-known Python AI-memory framework), this project reproduces the same four-verb API (`remember` / `recall` / `forget` / `improve`) and the same graph + vector retrieval strategies, but with a materially smaller footprint and stronger durability guarantees.
+Ingest text or documents; the system extracts entities and relationships with an
+LLM, embeds every chunk, and commits both the graph and the vector to Fluree in
+a single cryptographically-recorded transaction. Ask a natural-language question
+and pick one of five retrieval strategies — or run all of them side-by-side.
 
-## What it does
+## Highlights
 
-- **Remember** a fact — extract entities and relationships with an LLM, embed the text, store it all in Fluree as an immutable, cryptographically-committed RDF transaction.
-- **Recall** — pick one of five retrieval strategies (`CHUNKS`, `RAG`, `GRAPH`, `HYBRID`, or `FEELING_LUCKY`), or run all of them side-by-side, and answer questions from the accumulated memory.
-- **Forget** — clear the ledger.
-- **Compare** — the built-in "compare all strategies" mode makes the architecture difference between retrievers visible on any question.
+- **Two processes.** An Akka JVM service and the Fluree binary. That's the whole
+  runtime footprint.
+- **~550 MB resident.** Measured on a running instance (526 MB Akka + 24 MB
+  Fluree).
+- **~5 s cold start.**
+- **Durable ingest pipeline.** The `RememberWorkflow` is an Akka SDK
+  `Workflow` — a crashed step resumes at the failed step across a process
+  restart. State is journaled, not "best-effort."
+- **Five retrieval strategies** — `CHUNKS`, `RAG`, `GRAPH`, `HYBRID`,
+  `FEELING_LUCKY`. A built-in compare-all mode runs every strategy on a single
+  question in parallel and returns them side-by-side.
+- **Cryptographic provenance.** Every `/api/remember` returns a Fluree commit
+  hash. Fluree's time-travel queries reconstruct any prior state.
+- **Native structured output.** The graph extractor uses
+  `responseConformsTo(KnowledgeGraph.class)` — schema generation and validation
+  are the Akka agent's job, not an external library.
+- **No SaaS dependency.** No serverless queue, no vector-DB-as-a-service.
+  Everything runs locally.
 
-## Benchmark (HotpotQA distractor split, n=10)
+## Benchmark
 
-| Strategy | Exact Match | Token F1 | Mean latency |
-| --- | --- | --- | --- |
-| CHUNKS (no LLM) | 0.00 | 0.01 | 2.3 s |
-| RAG | 0.60 | 0.74 | 4.5 s |
-| GRAPH | 0.70 | 0.84 | 4.4 s |
-| **HYBRID** | **0.70** | **0.88** | **4.6 s** |
-| FEELING_LUCKY | 0.70 | 0.84 | 6.8 s |
+10 items from the HotpotQA distractor validation split, 99 paragraphs ingested
+(gold + distractors), one multi-hop question per item, scored with the official
+HotpotQA token-level F1 + exact match. See `scripts/eval_adapter.py`.
 
-Real multi-hop reasoning over the actual HotpotQA dev-set distractor paragraphs, scored with the official HotpotQA F1 + EM. For comparison, Cognee reports **F1 = 0.79 on BEAM at 100K tokens** in their README — this project sits in the same performance band.
-
-## Footprint
-
-- **2 processes** — Akka service + Fluree binary
-- **~550 MB** resident memory total
-- **~5 s** cold start
-- **1,066 lines** of Java in 19 files, plus 198 lines of tests
-
-For reference, the Cognee Python codebase is ~120,000 lines across 1,164 files.
+| Strategy       | Exact Match | Token F1 | Mean latency |
+| -------------- | ----------: | -------: | -----------: |
+| CHUNKS (no LLM)| 0.00        | 0.01     | 2.3 s        |
+| RAG            | 0.60        | 0.74     | 4.5 s        |
+| GRAPH          | 0.70        | 0.84     | 4.4 s        |
+| **HYBRID**     | **0.70**    | **0.88** | **4.6 s**    |
+| FEELING_LUCKY  | 0.70        | 0.84     | 6.8 s        |
 
 ## Prerequisites
 
 - Java 21+ and Maven 3.9+
-- Fluree v4.1.1+ binary (download from [fluree/db releases](https://github.com/fluree/db/releases))
-- A Google Gemini API key (`GOOGLE_AI_GEMINI_API_KEY` environment variable)
-- The Akka SDK context docs (fetched via `akka specify init .` after installing the [Akka CLI](https://doc.akka.io/operations/cli/installation.html))
+- The Fluree binary — download from
+  [fluree/db releases](https://github.com/fluree/db/releases)
+- A Google Gemini API key exported as `GOOGLE_AI_GEMINI_API_KEY`
+- The Akka SDK context docs (fetched via `akka specify init .` after installing
+  the [Akka CLI](https://doc.akka.io/operations/cli/installation.html))
 
 ## Quick start
 
 ```bash
-# 1. Start Fluree
-./fluree.exe init
-./fluree.exe server start --listen-addr 127.0.0.1:8090
-./fluree.exe create memory
-
-# 2. Set your API key
 export GOOGLE_AI_GEMINI_API_KEY=...
-
-# 3. Compile and run
-mvn compile exec:java
-
-# 4. Open the UI
-open http://localhost:9000/
+./start.sh        # or start.bat on Windows
 ```
 
+`start.sh` initializes Fluree, launches its HTTP server on `127.0.0.1:8090`,
+creates the `memory` ledger if it doesn't exist, then runs `mvn compile
+exec:java`. Open **http://localhost:9000/** when the service says it's ready.
+
+## UI
+
 Two tabs:
-- **App** — remember / recall / compare, with a live memory-counter, drag-drop `.txt`/`.md` import, and 5 selectable retrieval strategies.
-- **Architecture** — side-by-side comparison of Cognee vs. this project with measured footprint numbers.
+
+- **App** — Remember / Recall / Compare-all. Live memory-counter chip, drag-drop
+  `.txt`/`.md` import with progress bar, five selectable retrieval strategies,
+  cosine-similarity score badges on retrieved context, single-click "clear
+  memory."
+- **Architecture** — side-by-side comparison of this stack against Cognee (a
+  popular Python AI-memory framework), with measured footprint numbers and
+  aligned diagrams.
 
 ## HTTP API
 
-| Method + path | Body | Returns |
-| --- | --- | --- |
-| `POST /api/remember` | `{text}` | `{graph, commit}` |
-| `POST /api/recall` | `{question, strategy?}` | `{answer, context, strategy}` |
-| `POST /api/compare` | `{question}` | `{question, results[]}` |
-| `POST /api/forget` | `{}` | `{status}` |
-| `GET  /api/stats` | — | `{chunks, entities, commits}` |
-| `GET  /api/recent` | — | `{chunks[]}` |
+| Method + path         | Body                            | Returns                                                     |
+| --------------------- | ------------------------------- | ----------------------------------------------------------- |
+| `POST /api/remember`  | `{text}`                        | `{graph, commit}`                                           |
+| `POST /api/recall`    | `{question, strategy?}`         | `{answer, context: [{text, score?}], strategy}`             |
+| `POST /api/compare`   | `{question}`                    | `{question, results: [{strategy, answer, ms}]}`             |
+| `POST /api/forget`    | `{}`                            | `{status: "cleared"}`                                       |
+| `GET  /api/stats`     | —                               | `{chunks, entities, commits}`                               |
+| `GET  /api/recent`    | —                               | `{chunks: [...]}`                                           |
+
+`strategy` accepts `CHUNKS`, `RAG`, `GRAPH`, `HYBRID`, `LEXICAL`,
+`FEELING_LUCKY` (case-insensitive; default is `RAG`).
 
 ## Evaluation
-
-Run the HotpotQA harness against your local service:
 
 ```bash
 python -X utf8 scripts/eval_adapter.py --items 10
 ```
 
-Fetches 10 HotpotQA dev-set distractor items, ingests all 100 paragraphs (gold + distractors), asks the multi-hop question of each retrieval strategy, and scores with token-level F1 and exact match.
+Fetches 10 HotpotQA dev-set distractor items, ingests all 99 paragraphs (gold +
+distractor), asks the multi-hop question of every selected strategy, and prints
+a table of exact-match, F1, and mean latency per strategy.
 
-## Architecture
+## Architecture in one paragraph
 
-Everything the LLM does (entity extraction, structured output, question answering) runs on **Google Gemini 2.5 Flash** through Akka's built-in LangChain4j integration — no separate `instructor` / `LiteLLM` layer needed. Structured outputs use `responseConformsTo(SomeRecord.class)`.
+`RememberWorkflow` orchestrates the ingest: `GraphExtractorAgent` returns a
+typed `KnowledgeGraph` from the LLM, `GeminiEmbeddings` produces a 768-dim
+vector, `FlureeClient` commits both as a single JSON-LD transaction that
+Fluree records with a cryptographic hash. On recall, the endpoint dispatches
+to one of the five retrievers (or the `FeelingLuckyRetriever` classifier picks
+one for you), each of which returns an `Answer` with cosine-scored evidence.
+The QaAgent is instructed to be terse — HotpotQA answers are single entities
+or `yes`/`no`, not sentences.
 
-The `RememberWorkflow` is an Akka SDK `Workflow` — meaning a crashed pipeline resumes at the failed step rather than restarting from scratch. That's the durability property Cognee's Python "best-effort rollback ledger" only approximates.
+## Repository layout
 
-Fluree stores everything in one place:
-- **Graph** — RDF triples queried with SPARQL 1.1
-- **Vector** — cosine-similarity over stored `@vector` embeddings (Gemini `gemini-embedding-001`, 768 dims)
-- **Provenance** — every write returns a cryptographic commit hash; time-travel queries reconstruct any prior state
+```
+src/main/java/com/example/
+  api/                  HTTP endpoints (MemoryEndpoint, UiEndpoint)
+  application/          Agents, workflow, Fluree/embeddings clients, retrievers
+  domain/               KnowledgeGraph record — the extraction contract
+src/main/resources/
+  application.conf      Gemini model config (reads $GOOGLE_AI_GEMINI_API_KEY)
+  static-resources/     The web UI (single index.html)
+src/test/java/          JUnit tests against the running service
+scripts/                Python HotpotQA eval harness
+```
+
+## Prior art & credit
+
+The overall four-verb API surface (`remember` / `recall` / `forget` / `improve`)
+and the strategy taxonomy borrow from
+[Cognee](https://github.com/topoteretes/cognee), a Python AI-memory framework
+whose eval framework was the reference for this project's benchmark harness.
+The Architecture tab shows the footprint difference side-by-side.
 
 ## License
 
 MIT. See `LICENSE`.
-
-## Credit
-
-Cognee (topoteretes) did substantial prior work on the AI-memory problem, and their eval framework's benchmark adapters were the reference for this project's evaluation approach. Where their framework needs 5+ processes and 120K lines of Python, this project needs 2 processes and 1K lines of Java — but that is because it stands on the specific shoulders of Akka's durable workflow model and Fluree's unified graph+vector store, not because their work was wrong.

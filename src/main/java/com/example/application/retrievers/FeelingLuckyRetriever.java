@@ -6,8 +6,9 @@ import com.example.application.SearchTypeClassifierAgent.Choice;
 import java.util.UUID;
 
 /**
- * Ask the classifier agent which strategy fits this question, then delegate.
- * Mirrors cognee's select_search_type.py.
+ * Ask the classifier agent which retrieval strategy fits this question, then
+ * delegate to that strategy. The wrapped answer reports its strategy as
+ * {@code FEELING_LUCKY-&gt;X} so the UI can show what was picked.
  */
 public final class FeelingLuckyRetriever implements Retriever {
 
