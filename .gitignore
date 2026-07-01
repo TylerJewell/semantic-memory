@@ -1,0 +1,20 @@
+target/
+*.class
+logs/
+temp/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Fluree runtime data
+.tools/
+.fluree/
+
+# Downloaded Akka SDK docs (regenerate with `akka specify init .`)
+akka-context/
+.akka/download-metadata.json
+
+# Env
+.env
+.env.local

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Akka × Fluree — AI Memory</title>
+<style>
+  :root { --bg:#0e1116; --panel:#171b22; --line:#262c36; --fg:#e6edf3; --muted:#8b949e;
+          --accent:#00c586; --accent2:#4493f8; --warn:#f0883e; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,Segoe UI,Roboto,Arial; background:var(--bg); color:var(--fg); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); }
+  header .head-row { display:flex; justify-content:space-between; align-items:flex-start; gap:24px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:18px; display:flex; align-items:center; gap:8px; }
+  header p.tag { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  .info { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border-radius:50%;
+          background:#1d2632; color:var(--muted); font-size:11px; font-weight:600; cursor:help; user-select:none; }
+  .info:hover { background:#26313f; color:var(--fg); }
+  /* Stats chip */
+  .stats-chip { display:flex; gap:14px; align-items:center; background:var(--panel); border:1px solid var(--line);
+                border-radius:999px; padding:6px 14px; font-size:12px; color:var(--muted); white-space:nowrap; }
+  .stats-chip b { color:var(--accent); font-weight:700; margin-right:3px; }
+  .stats-chip a { color:var(--bad); cursor:pointer; text-decoration:none; padding-left:6px; border-left:1px solid var(--line); }
+  .stats-chip a:hover { text-decoration:underline; }
+  .small { font-size:12px; }
+  /* Tabs */
+  nav.tabs { display:flex; gap:4px; padding:12px 24px 0; border-bottom:1px solid var(--line); background:var(--bg); position:sticky; top:0; z-index:5; }
+  nav.tabs button { background:transparent; color:var(--muted); border:1px solid transparent; border-bottom:none;
+                    padding:9px 16px; border-radius:8px 8px 0 0; cursor:pointer; font:inherit; }
+  nav.tabs button.active { color:var(--fg); background:var(--panel); border-color:var(--line); }
+  .view { display:none; }
+  .view.active { display:block; }
+  /* App view */
+  .app { max-width:1200px; margin:0 auto; padding:24px; }
+  .wrap { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px;
+           min-width:0; overflow:hidden; display:flex; flex-direction:column; }
+  /* Compact 3-step banner spanning both columns */
+  .flow { display:grid; grid-template-columns:1fr auto 1fr auto 1fr; gap:8px; align-items:center;
+          padding:10px 14px; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          margin-bottom:14px; font-size:12.5px; }
+  .flow .step { display:flex; gap:8px; align-items:center; min-width:0; }
+  .flow .step b { color:var(--accent2); }
+  .flow .num { width:20px; height:20px; border-radius:50%; background:var(--accent2); color:#021126;
+               font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .flow .arrow { color:var(--muted); }
+  .panel h2 { margin:0 0 12px; font-size:15px; }
+  .panel h2 .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:8px; }
+  .remember .dot { background:var(--accent); }
+  .recall .dot { background:var(--accent2); }
+  textarea, input { width:100%; background:#0d1017; border:1px solid var(--line); color:var(--fg);
+                    border-radius:8px; padding:10px; font:inherit; resize:vertical; }
+  textarea { min-height:88px; }
+  #text, #question { min-height:88px; height:88px; }
+  button.primary { margin-top:10px; background:var(--accent); color:#04140d; border:1px solid var(--accent); border-radius:8px;
+           padding:8px 16px; font:inherit; font-weight:600; cursor:pointer; line-height:1.4; }
+  .recall button.primary { background:var(--accent2); color:#021126; border-color:var(--accent2); }
+  button.primary:disabled { opacity:.5; cursor:wait; }
+  .out { margin-top:14px; font-size:13px; }
+  .muted { color:var(--muted); }
+  .answer { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:12px; white-space:pre-wrap; }
+  .triple { font-family:ui-monospace,Consolas,monospace; font-size:12px; padding:3px 0; border-bottom:1px solid var(--line); }
+  .tag { display:inline-block; background:#0d1017; border:1px solid var(--line); border-radius:6px;
+         padding:1px 7px; margin:2px 4px 2px 0; font-size:12px; }
+  .commit { font-family:ui-monospace,Consolas,monospace; font-size:11px; color:var(--accent); word-break:break-all; }
+  .ctx { font-size:12px; color:var(--muted); border-left:2px solid var(--line); padding-left:10px; margin:6px 0; }
+  /* Seed buttons */
+  .seeds { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .seed-btn { background:#0d1017; border:1px solid var(--line); color:var(--fg); padding:5px 10px; border-radius:6px;
+              font:inherit; font-size:12px; cursor:pointer; }
+  .seed-btn:hover { border-color:var(--accent); color:var(--accent); }
+  /* File-drop zone */
+  .drop { margin-top:10px; padding:10px 12px; border:1px dashed var(--line); border-radius:8px;
+          font-size:12px; color:var(--muted); display:flex; gap:10px; align-items:center; }
+  .drop.hover { border-color:var(--accent); color:var(--accent); background:#0d1017; }
+  .drop label { color:var(--accent); cursor:pointer; text-decoration:underline; }
+  .drop input[type=file] { display:none; }
+  .progress { margin-top:10px; font-size:12px; color:var(--muted); }
+  .progress .bar { height:4px; background:#0d1017; border-radius:2px; overflow:hidden; margin-top:4px; }
+  .progress .bar > div { height:100%; background:var(--accent); width:0%; transition:width .2s; }
+  /* Strategy picker */
+  .strategies { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:10px 0 8px; }
+  .strat { background:#0d1017; border:1px solid var(--line); color:var(--muted); padding:5px 11px; border-radius:999px;
+           font:inherit; font-size:12px; cursor:pointer; }
+  .strat:hover { color:var(--fg); border-color:var(--accent2); }
+  .strat.active { background:var(--accent2); color:#021126; border-color:var(--accent2); font-weight:600; }
+  /* Actions row (constrains buttons so they don't stretch to full width) */
+  .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .actions .primary, .actions .secondary { align-self:flex-start; }
+  button.secondary { margin-top:10px; background:#0d1017; color:var(--fg); border:1px solid var(--line);
+                     border-radius:8px; padding:8px 16px; font:inherit; font-weight:600; cursor:pointer; line-height:1.4; }
+  button.secondary:hover { border-color:var(--accent2); color:var(--accent2); }
+  button.secondary:disabled { opacity:.5; cursor:wait; }
+  /* Recent list */
+  .recent { margin-top:auto; padding-top:12px; border-top:1px solid var(--line); max-width:100%; }
+  .recent.hidden { display:none; }
+  .recent-title { margin-bottom:6px; text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
+  .recent-item { padding:6px 0; border-bottom:1px dashed var(--line); color:var(--fg); font-size:12.5px;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  #recentList { max-width:100%; overflow:hidden; }
+  .recent-item:last-child { border-bottom:0; }
+  /* Recall results */
+  .empty-state { padding:14px 16px; border:1px dashed var(--line); border-radius:8px; line-height:1.5; }
+  .ctx-hit { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; background:#0d1017;
+             border:1px solid var(--line); border-radius:6px; margin:4px 0; font-size:12.5px;
+             overflow-wrap:anywhere; word-break:break-word; }
+  .ctx-hit .rank { color:var(--accent); font-family:ui-monospace,Consolas,monospace; font-weight:700; min-width:18px; flex-shrink:0; }
+  .ctx-hit .score { color:var(--muted); font-family:ui-monospace,Consolas,monospace; font-size:11px; }
+  .compare-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:8px; }
+  .compare-cell { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:10px;
+                  font-size:12.5px; min-width:0; overflow-wrap:anywhere; }
+  .compare-cell h4 { margin:0 0 4px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--accent2); }
+  .compare-cell .ms { color:var(--muted); font-size:11px; font-family:ui-monospace,Consolas,monospace; }
+  .answer { overflow-wrap:anywhere; }
+  /* Flash to indicate cross-panel events */
+  @keyframes flash { 0%{box-shadow:0 0 0 0 var(--accent2);} 100%{box-shadow:0 0 0 12px rgba(0,0,0,0);} }
+  .flash { animation: flash .8s ease-out; }
+
+  /* Architecture view */
+  .arch { padding:24px; max-width:1400px; margin:0 auto; }
+  .arch h2 { margin:0 0 6px; font-size:16px; }
+  .arch p.lede { margin:0 0 18px; color:var(--muted); font-size:13px; }
+  .columns { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .col { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:18px; }
+  .col h3 { margin:0 0 10px; font-size:14px; display:flex; align-items:center; gap:8px; }
+  .badge { font-size:10px; font-weight:600; letter-spacing:.5px; padding:2px 8px; border-radius:10px; }
+  .badge.before { background:#3a2120; color:#ffb3a8; border:1px solid #5a2a25; }
+  .badge.after  { background:#10301f; color:#7be3b3; border:1px solid #205a3c; }
+  .mermaid { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; }
+  pre.ascii { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:14px;
+              overflow:auto; font:12px/1.35 ui-monospace,Consolas,"Courier New",monospace;
+              color:var(--fg); margin:0; white-space:pre; }
+  pre.ascii .accent { color:var(--accent); }
+  pre.ascii .accent2 { color:var(--accent2); }
+  pre.ascii .warn { color:var(--warn); }
+  pre.ascii .muted { color:var(--muted); }
+  table.stats { width:100%; border-collapse:collapse; margin-top:14px; font-size:12.5px; }
+  table.stats th, table.stats td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); }
+  table.stats th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+  table.stats td.metric { color:var(--muted); width:42%; }
+  table.stats td.val { font-family:ui-monospace,Consolas,monospace; font-size:12.5px; }
+  .val.good { color:var(--accent); }
+  .val.warn { color:var(--warn); }
+  .val.bad  { color:var(--bad); }
+  .summary { margin-top:18px; padding:14px 16px; background:var(--panel); border:1px solid var(--line); border-radius:10px; font-size:13px; }
+  .summary b { color:var(--accent); }
+  .footnote { font-size:11px; color:var(--muted); margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="head-row">
+    <div>
+      <h1>Akka × Fluree — AI Memory
+        <span class="info" title="A queryable knowledge base of facts and how they connect — built automatically from documents, shared across every agent and chat. NOT the short-term conversation memory inside one agent or entity; this is a separate, durable knowledge store any AI can read from and write to.">?</span>
+      </h1>
+      <p class="tag">Teach an AI facts. Ask any question. See where every answer came from.</p>
+    </div>
+    <div class="stats-chip" id="statsChip" title="Live counts from Fluree">
+      <span><b id="cChunks">0</b> paragraphs</span>
+      <span><b id="cEnts">0</b> entities</span>
+      <span><b id="cCommits">0</b> commits</span>
+      <a id="forgetLink" title="Forget everything in memory">clear</a>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="app">App</button>
+  <button class="tab-btn" data-tab="arch">Architecture</button>
+</nav>
+
+<!-- ============== APP TAB ============== -->
+<section id="tab-app" class="view active">
+  <div class="app">
+
+    <!-- 3-step flow banner spanning both columns -->
+    <div class="flow">
+      <div class="step"><div class="num">1</div><div>Teach a fact — click a seed, paste text, or upload a document</div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="num">2</div><div>Ask a question, pick a <b>strategy</b></div></div>
+      <div class="arrow">→</div>
+      <div class="step"><div class="num">3</div><div>Or <b>Compare all</b> strategies side-by-side</div></div>
+    </div>
+
+    <div class="wrap">
+      <div class="panel remember" id="rememberPanel">
+        <h2><span class="dot"></span>Remember <span class="muted small">— teach the system a fact</span></h2>
+
+        <textarea id="text" placeholder="Paste a sentence or paragraph…"></textarea>
+
+        <div class="seeds">
+          <span class="muted small">Quick seeds:</span>
+          <button class="seed-btn" data-seed="Akka provides a Java SDK for building stateful services. The Akka SDK includes Agents, Workflows, Event Sourced Entities, Key Value Entities, Views, and HTTP Endpoints.">Akka SDK</button>
+          <button class="seed-btn" data-seed="Fluree is an immutable RDF graph database written in Rust with built-in HNSW vector search and BM25 full-text search. Every Fluree commit is cryptographically recorded for provenance and supports time-travel queries.">Fluree</button>
+          <button class="seed-btn" data-seed="The Eiffel Tower, located in Paris, France, was completed in 1889 and designed by the engineer Gustave Eiffel. It stands 330 metres tall and was the world's tallest man-made structure for 41 years.">Eiffel Tower</button>
+          <button class="seed-btn" data-seed="Marie Curie was a Polish-French physicist and chemist. She won the Nobel Prize in Physics in 1903 and the Nobel Prize in Chemistry in 1911, becoming the first person to win Nobel Prizes in two different sciences.">Marie Curie</button>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="rememberBtn">Remember →</button>
+        </div>
+
+        <div class="drop" id="drop">
+          <span>📄</span>
+          <div>Or import a document — drop a <b>.txt</b> or <b>.md</b> file here, or
+            <label for="fileInput">choose one</label>. Split by paragraph and ingested one by one.</div>
+          <input type="file" id="fileInput" accept=".txt,.md,.markdown,text/plain" />
+        </div>
+
+        <div class="progress" id="importProgress" style="display:none">
+          <div id="importLabel">Importing…</div>
+          <div class="bar"><div id="importBar"></div></div>
+        </div>
+
+        <div class="out" id="rememberOut"></div>
+
+        <div class="recent hidden" id="recent">
+          <div class="muted small recent-title">Recently remembered</div>
+          <div id="recentList"></div>
+        </div>
+      </div>
+
+      <div class="panel recall" id="recallPanel">
+        <h2><span class="dot"></span>Recall <span class="muted small">— ask anything about what you've remembered</span></h2>
+
+        <textarea id="question" placeholder="What does Fluree provide? · How tall is the Eiffel Tower? · …" rows="3"></textarea>
+
+        <div class="strategies">
+          <span class="muted small">Strategy:</span>
+          <button class="strat active" data-strat="RAG"          title="Vector search → LLM answer (Cognee's default)">RAG</button>
+          <button class="strat"        data-strat="CHUNKS"       title="Raw chunks ranked by vector similarity. No LLM call.">Chunks</button>
+          <button class="strat"        data-strat="GRAPH"        title="Walk the entity graph from matched chunks → LLM answer">Graph</button>
+          <button class="strat"        data-strat="HYBRID"       title="Combine chunks + triples → LLM answer">Hybrid</button>
+          <button class="strat"        data-strat="FEELING_LUCKY" title="Let the system pick a strategy">Lucky</button>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="recallBtn">Recall →</button>
+          <button class="secondary" id="compareBtn" title="Run all strategies on this question and compare">Compare all</button>
+        </div>
+
+        <div class="out" id="recallOut">
+          <div class="empty-state muted small">Ask a question above and pick a strategy — answers will appear here with the retrieved context.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============== ARCHITECTURE TAB ============== -->
+<section id="tab-arch" class="view">
+  <div class="arch">
+    <h2>Architecture: Cognee vs. Akka + Fluree</h2>
+
+    <div class="columns">
+      <!-- BEFORE -->
+      <div class="col">
+        <h3>Cognee</h3>
+<pre class="ascii">
+                              🧒 YOU
+                                │
+                 remember / recall / forget / improve
+                                │
+                                ▼
+                       🚪 FRONT DESK  (API · CLI · MCP)
+                       /                          \
+        ┌─────────────┘                            └──────────────┐
+        ▼  (STORING a memory)                       (ANSWERING)  ▼
+   📦 Unpack (add)                                   🔍 Answer Specialists
+        │                                              (retrievers)
+        ▼                                              /          \
+   ✂️ Cut into pages (chunk)                          /            \
+        │                                  follow strings      find by meaning
+        ▼                                           │               │
+   🧠 SMART READER  ◄───📋 Rulebook (ontology)
+   (LLM extraction)                                 │               │
+        │  "Tom —feeds→ Rex; Rex is a dog"          │               │
+        ▼                                           ▼               ▼
+   ┌─────────┴───────────┐                   🕸️ WEB WALL      🔢 SMELLS-LIKE
+   ▼                     ▼                    (Graph DB)         SHELF
+ 🕸️ WEB WALL        🔢 SMELLS-LIKE            Neo4j/Kuzu       (Vector DB)
+ (Graph DB)            SHELF  ◄── 🔢➡️ Number-maker            LanceDB/pgvector
+ Neo4j/Kuzu         (Vector DB)   (embeddings)        \         /
+                                                       ▼       ▼
+                                                   💬 CONNECTED ANSWER
+</pre>
+
+        <table class="stats">
+          <tr><th colspan="2">Footprint &amp; expectations</th></tr>
+          <tr><td class="metric">Lines of code</td><td class="val bad">~120,000 Python (1,164 files)</td></tr>
+          <tr><td class="metric">Processes to run</td><td class="val warn">5–7 (Python + Redis + Postgres + graph + vector)</td></tr>
+          <tr><td class="metric">Storage tier processes</td><td class="val warn">3+ (graph + vector + relational + Redis)</td></tr>
+          <tr><td class="metric">Resident memory</td><td class="val bad">~2–3 GB (estimated)</td></tr>
+          <tr><td class="metric">Cold start</td><td class="val warn">30–90 s (estimated)</td></tr>
+          <tr><td class="metric">Retrieval strategies</td><td class="val warn">~15 retrievers (rich but overlapping)</td></tr>
+          <tr><td class="metric">Benchmark accuracy</td><td class="val warn">BEAM F1 = 0.79 @ 100K tokens (published)</td></tr>
+          <tr><td class="metric">Full recall (Q → answer)</td><td class="val warn">~2–5 s incl. LLM (estimated)</td></tr>
+          <tr><td class="metric">Resume mid-pipeline on crash</td><td class="val bad">No — restarts from scratch</td></tr>
+          <tr><td class="metric">Cross-store transactionality</td><td class="val bad">Fire-and-forget + best-effort ledger</td></tr>
+          <tr><td class="metric">Provenance / audit trail</td><td class="val warn">Source-chunk pointer</td></tr>
+        </table>
+      </div>
+
+      <!-- AFTER -->
+      <div class="col">
+        <h3>Akka + Fluree</h3>
+<pre class="ascii">
+                           🧒 YOU
+                             │
+            remember / recall / forget / improve
+                             │
+                             ▼
+           🚪 FRONT DESK  (Web UI + HTTP Endpoint)
+                       /                          \
+        ┌─────────────┘                            └──────────────┐
+        ▼  (STORING a memory)                        (ANSWERING)  ▼
+   🏃 RememberAkkaWorkflow                            🔍 RecallAkkaEndpoint
+   │                                                  │
+   ▼                                                  ▼
+   🧠 SMART READER                                    5 strategies
+   (Akka Agent)                                       Chunks · RAG · Graph
+   │                                                  Hybrid · Feeling Lucky
+   │  "Tom —feeds→ Rex"                               │
+   ▼                                                  ▼
+   🗄️ FLUREE                                         🗄️ FLUREE
+   ┌──────────────────────────┐                       (graph + vector +
+   │  Graph     (RDF, SPARQL) │                        provenance)
+   │  Vector   (HNSW, cosine) │                       │
+   │  Commit log (immutable)  │                       ▼
+   └──────────────────────────┘                    💬 CONNECTED ANSWER
+
+
+
+</pre>
+
+        <table class="stats">
+          <tr><th colspan="2">Footprint &amp; expectations</th></tr>
+          <tr><td class="metric">Lines of code</td><td class="val good">1,066 Java + 198 tests + 541 HTML/conf</td></tr>
+          <tr><td class="metric">Processes to run</td><td class="val good">2 (Akka + Fluree) (measured)</td></tr>
+          <tr><td class="metric">Storage tier processes</td><td class="val good">1 (Fluree = graph + vector + provenance)</td></tr>
+          <tr><td class="metric">Resident memory</td><td class="val good">~550 MB (526 Akka + 24 Fluree) (measured)</td></tr>
+          <tr><td class="metric">Cold start</td><td class="val good">~5 s (measured)</td></tr>
+          <tr><td class="metric">Retrieval strategies</td><td class="val good">5 (covers same use-cases, simpler taxonomy)</td></tr>
+          <tr><td class="metric">Benchmark accuracy</td><td class="val good">HotpotQA F1 = 0.88 HYBRID · 0.84 GRAPH · 0.74 RAG (measured, n=10)</td></tr>
+          <tr><td class="metric">Full recall (Q → answer)</td><td class="val good">~4.5 s incl. LLM (measured)</td></tr>
+          <tr><td class="metric">Resume mid-pipeline on crash</td><td class="val good">Yes — Workflow is durable</td></tr>
+          <tr><td class="metric">Cross-store transactionality</td><td class="val good">Single Fluree transaction per remember</td></tr>
+          <tr><td class="metric">Provenance / audit trail</td><td class="val good">Cryptographic commit hash + time-travel</td></tr>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let currentStrategy = 'RAG';
+
+async function call(path, body) {
+  const opts = body
+    ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }
+    : { method:'GET' };
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.text()) || ('HTTP ' + r.status));
+  return r.json();
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Tabs
+document.querySelectorAll('.tab-btn').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tab-btn').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'tab-' + b.dataset.tab));
+});
+
+// Strategy picker
+document.querySelectorAll('.strat').forEach(s => s.onclick = () => {
+  document.querySelectorAll('.strat').forEach(x => x.classList.toggle('active', x === s));
+  currentStrategy = s.dataset.strat;
+});
+
+// Header stats polling
+async function refreshStats() {
+  try {
+    const s = await call('/api/stats');
+    $('cChunks').textContent = s.chunks;
+    $('cEnts').textContent = s.entities;
+    $('cCommits').textContent = s.commits;
+  } catch (e) { /* ignore */ }
+  try {
+    const r = await call('/api/recent');
+    const list = (r.chunks||[]).slice(0, 3);
+    const recent = document.getElementById('recent');
+    if (list.length === 0) {
+      recent.classList.add('hidden');
+    } else {
+      recent.classList.remove('hidden');
+      $('recentList').innerHTML = list
+        .map(c => `<div class="recent-item" title="${esc(c)}">${esc(c)}</div>`).join('');
+    }
+  } catch (e) { /* ignore */ }
+}
+refreshStats();
+setInterval(refreshStats, 6000);
+
+// Seeds: clicking a button drops the seed into the textarea and focuses it.
+document.querySelectorAll('.seed-btn').forEach(b => b.onclick = () => {
+  $('text').value = b.getAttribute('data-seed');
+  $('text').focus();
+});
+
+// Remember
+$('rememberBtn').onclick = async () => {
+  const text = $('text').value.trim();
+  if (!text) return;
+  const btn = $('rememberBtn'), out = $('rememberOut');
+  btn.disabled = true; out.innerHTML = '<span class="muted small">Extracting graph with Gemini…</span>';
+  try {
+    const res = await call('/api/remember', { text });
+    const ents = (res.graph.entities||[]).map(e => `<span class="tag">${esc(e.name)} <span class="muted">:${esc(e.type||'')}</span></span>`).join('');
+    const rels = (res.graph.relationships||[]).map(r => `<div class="triple">${esc(r.source)} —[${esc(r.label)}]→ ${esc(r.target)}</div>`).join('');
+    out.innerHTML = `<div><b>Entities (${(res.graph.entities||[]).length})</b><br>${ents||'<span class="muted">none</span>'}</div>
+      <div style="margin-top:10px"><b>Relationships (${(res.graph.relationships||[]).length})</b>${rels||'<div class="muted">none</div>'}</div>
+      <div style="margin-top:10px"><b>Fluree commit</b><div class="commit">${esc(res.commit)}</div></div>`;
+    // Flash the Recall panel to hint "now you can ask"
+    const rp = $('recallPanel'); rp.classList.remove('flash'); void rp.offsetWidth; rp.classList.add('flash');
+    refreshStats();
+  } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
+  finally { btn.disabled = false; }
+};
+
+// Recall (single strategy)
+$('recallBtn').onclick = async () => {
+  const question = $('question').value.trim();
+  if (!question) return;
+  const btn = $('recallBtn'), out = $('recallOut');
+  btn.disabled = true; out.innerHTML = `<span class="muted small">Searching memory (${currentStrategy}) &amp; answering…</span>`;
+  try {
+    const res = await call('/api/recall', { question, strategy: currentStrategy });
+    const ctx = (res.context||[]).map((c,i) =>
+      `<div class="ctx-hit"><span class="rank">${i+1}</span><span>${esc(c)}</span></div>`).join('');
+    out.innerHTML = `<div class="answer">${esc(res.answer)}</div>
+      <div style="margin-top:10px"><b class="muted small">Retrieved context · strategy: ${esc(res.strategy)}</b>
+        ${ctx || '<div class="muted small">nothing matched</div>'}</div>`;
+  } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
+  finally { btn.disabled = false; }
+};
+
+// Compare all strategies side-by-side
+$('compareBtn').onclick = async () => {
+  const question = $('question').value.trim();
+  if (!question) return;
+  const btn = $('compareBtn'), out = $('recallOut');
+  btn.disabled = true; out.innerHTML = '<span class="muted small">Running all 5 strategies in parallel…</span>';
+  try {
+    const res = await call('/api/compare', { question });
+    const cells = res.results.map(r =>
+      `<div class="compare-cell"><h4>${esc(r.strategy)}</h4>
+         <div>${esc(r.answer)}</div>
+         <div class="ms">${r.ms} ms</div></div>`).join('');
+    out.innerHTML = `<div class="muted small" style="margin-bottom:6px">Same question · 5 strategies</div>
+      <div class="compare-grid">${cells}</div>`;
+  } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
+  finally { btn.disabled = false; }
+};
+
+// Recall on Enter (Shift+Enter = newline, plain Enter = submit)
+$('question').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('recallBtn').click(); }
+});
+
+// File import
+function splitParagraphs(text) {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split(/\n\s*\n+/)         // blank-line separated
+    .map(p => p.trim())
+    .filter(p => p.length >= 20);   // ignore trivial fragments
+}
+
+async function importFile(file) {
+  if (!file) return;
+  const text = await file.text();
+  const paras = splitParagraphs(text);
+  if (paras.length === 0) { alert('No paragraphs found in ' + file.name); return; }
+  const bar = $('importBar'), lbl = $('importLabel'), prog = $('importProgress');
+  prog.style.display = ''; bar.style.width = '0%'; lbl.textContent = `Importing ${paras.length} paragraphs from ${file.name}…`;
+  const btn = $('rememberBtn'); btn.disabled = true;
+  let ok = 0, fail = 0;
+  for (let i = 0; i < paras.length; i++) {
+    try { await call('/api/remember', { text: paras[i] }); ok++; }
+    catch (e) { fail++; }
+    bar.style.width = ((i + 1) / paras.length * 100).toFixed(1) + '%';
+    lbl.textContent = `Importing ${i + 1}/${paras.length} · ${ok} ok · ${fail} failed`;
+  }
+  lbl.textContent = `Imported ${ok}/${paras.length} paragraphs from ${file.name}` + (fail ? ` (${fail} failed)` : '');
+  btn.disabled = false;
+  refreshStats();
+  const rp = $('recallPanel'); rp.classList.remove('flash'); void rp.offsetWidth; rp.classList.add('flash');
+}
+
+$('fileInput').addEventListener('change', (e) => importFile(e.target.files[0]));
+
+const drop = $('drop');
+;['dragenter', 'dragover'].forEach(evt => drop.addEventListener(evt, e => {
+  e.preventDefault(); drop.classList.add('hover');
+}));
+;['dragleave', 'drop'].forEach(evt => drop.addEventListener(evt, e => {
+  e.preventDefault(); drop.classList.remove('hover');
+}));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer?.files?.[0]; if (f) importFile(f);
+});
+
+// Forget
+$('forgetLink').onclick = async () => {
+  if (!confirm('Clear ALL memory? This deletes every chunk and entity from Fluree.')) return;
+  try {
+    await call('/api/forget', {});
+    refreshStats();
+    $('recentList').innerHTML = '<span class="muted small">memory cleared.</span>';
+    $('rememberOut').innerHTML = '<span class="muted small">Memory cleared.</span>';
+    $('recallOut').innerHTML = '<div class="empty-state muted small">Memory is empty. Remember something above to get started.</div>';
+  } catch (e) { alert('forget failed: ' + e.message); }
+};
+</script>
+</body>
+</html>
