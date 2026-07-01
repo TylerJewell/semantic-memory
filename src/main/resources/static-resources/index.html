@@ -339,13 +339,13 @@
         <table class="stats">
           <tr><th colspan="2">Footprint &amp; expectations</th></tr>
           <tr><td class="metric">Lines of code</td><td class="val good">1,066 Java (19 files) + 541 HTML/conf</td></tr>
-          <tr><td class="metric">Processes to run</td><td class="val good">2 (Akka + Fluree) (measured)</td></tr>
+          <tr><td class="metric">Processes to run</td><td class="val good">2 (Akka + Fluree)</td></tr>
           <tr><td class="metric">Storage tier processes</td><td class="val good">1 (Fluree = graph + vector + provenance)</td></tr>
-          <tr><td class="metric">Resident memory</td><td class="val good">~550 MB (526 Akka + 24 Fluree) (measured)</td></tr>
-          <tr><td class="metric">Cold start</td><td class="val good">~5 s (measured)</td></tr>
+          <tr><td class="metric">Resident memory</td><td class="val good">~550 MB (526 Akka + 24 Fluree)</td></tr>
+          <tr><td class="metric">Cold start</td><td class="val good">~5 s</td></tr>
           <tr><td class="metric">Retrieval strategies</td><td class="val good">5 (covers same use-cases, simpler taxonomy)</td></tr>
           <tr><td class="metric">Benchmark accuracy</td><td class="val good">HotpotQA F1 = 0.88 HYBRID · 0.84 GRAPH · 0.74 RAG</td></tr>
-          <tr><td class="metric">Full recall (Q → answer)</td><td class="val good">~4.5 s incl. LLM (measured)</td></tr>
+          <tr><td class="metric">Full recall (Q → answer)</td><td class="val good">~4.5 s incl. LLM</td></tr>
           <tr><td class="metric">Resume mid-pipeline on crash</td><td class="val good">Yes — Workflow is durable</td></tr>
           <tr><td class="metric">Cross-store transactionality</td><td class="val good">Single Fluree transaction per remember</td></tr>
           <tr><td class="metric">Provenance / audit trail</td><td class="val good">Cryptographic commit hash + time-travel</td></tr>
