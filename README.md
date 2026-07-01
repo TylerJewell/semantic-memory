@@ -53,6 +53,13 @@ HotpotQA token-level F1 + exact match. See `scripts/eval_adapter.py`.
 - The Akka SDK context docs (fetched via `akka specify init .` after installing
   the [Akka CLI](https://doc.akka.io/operations/cli/installation.html))
 
+> ⚠️ **Licensing note.** This project's own code is MIT, but Akka SDK
+> (Business Source License 1.1) and Fluree DB (EPL 2.0) are separate
+> third-party components with their own terms. Anyone deploying this stack
+> — especially for commercial or production use — is responsible for
+> obtaining the appropriate licenses **directly from Akka Inc. and Fluree
+> PBC**. See `NOTICE.md` for details.
+
 ## Quick start
 
 ```bash
@@ -135,4 +142,27 @@ The Architecture tab shows the footprint difference side-by-side.
 
 ## License
 
-MIT. See `LICENSE`.
+**This project's own source code is MIT.** See `LICENSE`.
+
+That covers only the code in this repository. The runtime depends on two
+third-party components with their own licensing terms, which are **not** covered
+by the MIT license here and must be obtained separately by anyone deploying
+this stack:
+
+- **Akka SDK / Akka runtime** — released under the
+  [Business Source License 1.1](https://www.akka.io/bsl-license) by Akka Inc.
+  Development, testing, and small-scale use are permitted for free; commercial
+  or production deployments above the BSL threshold require a commercial
+  license obtained directly from Akka Inc. See
+  <https://www.akka.io/pricing> for current terms.
+
+- **Fluree DB** — the open-source Fluree DB binary this project uses (v4.1.1+)
+  is released under the [Eclipse Public License 2.0](https://github.com/fluree/db/blob/main/LICENSE).
+  Fluree's hosted / commercial products (Fluree Core, Fluree Solo, enterprise
+  support) have separate terms obtained directly from
+  [Fluree PBC](https://flur.ee/). Verify current licensing for your intended
+  use with them.
+
+If you fork or deploy this project you are responsible for holding valid
+licenses for both dependencies according to your use case. This repository's
+MIT grant does not — and cannot — sublicense them.
