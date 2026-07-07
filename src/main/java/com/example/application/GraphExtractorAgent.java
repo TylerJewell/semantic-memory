@@ -2,6 +2,8 @@ package com.example.application;
 
 import akka.javasdk.agent.Agent;
 import akka.javasdk.annotations.Component;
+import com.example.application.model.LocalGraphParser;
+import com.example.application.model.ModelSelector;
 import com.example.domain.KnowledgeGraph;
 
 /**
@@ -29,10 +31,42 @@ public class GraphExtractorAgent extends Agent {
           .stripIndent();
 
   public Effect<KnowledgeGraph> extract(String text) {
+    // Key-gated provider: no GOOGLE_AI_GEMINI_API_KEY -> in-JVM Jlama (zero external network);
+    // key present -> Gemini. Overrides the application.conf default per call.
+    if (ModelSelector.usingLocalChat()) {
+      // A 1.1B local model can't honor the SDK's strict JSON-schema (responseConformsTo) path
+      // reliably, so we few-shot prompt it for compact JSON and parse the reply ourselves with a
+      // bounded repair + lenient fallback. No external network is touched.
+      // A non-blank system message is required by the SDK; the in-JVM JlamaChatModel ignores it
+      // (it prompts from the user message only), so the few-shot instructions live in userMessage.
+      return effects()
+          .model(ModelSelector.chatProvider())
+          .systemMessage(SYSTEM_MESSAGE)
+          .userMessage(localPrompt(text))
+          .map(LocalGraphParser::parse)
+          .thenReply();
+    }
     return effects()
+        .model(ModelSelector.chatProvider())
         .systemMessage(SYSTEM_MESSAGE)
         .userMessage(text)
         .responseConformsTo(KnowledgeGraph.class)
         .thenReply();
+  }
+
+  // Few-shot prompt that reliably steers a tiny model to emit a leading JSON object of the exact
+  // {"relationships":[{"source","label","target"}]} shape LocalGraphParser expects.
+  private static String localPrompt(String text) {
+    return """
+        You extract subject-predicate-object relationships from a sentence as JSON.
+        Reply with ONLY a JSON object, no prose.
+
+        Sentence: Alice lives in Boston.
+        JSON: {"relationships":[{"source":"Alice","label":"lives in","target":"Boston"}]}
+
+        Sentence: %s
+        JSON:"""
+        .formatted(text)
+        .stripIndent();
   }
 }

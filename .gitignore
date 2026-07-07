@@ -15,6 +15,9 @@ temp/
 akka-context/
 .akka/download-metadata.json
 
+# Downloaded in-JVM Jlama model (~1GB, fetched on first no-key run)
+models/
+
 # Env
 .env
 .env.local

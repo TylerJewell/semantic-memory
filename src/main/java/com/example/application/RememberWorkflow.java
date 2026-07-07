@@ -5,6 +5,7 @@ import akka.javasdk.annotations.Component;
 import akka.javasdk.annotations.StepName;
 import akka.javasdk.client.ComponentClient;
 import akka.javasdk.workflow.Workflow;
+import com.example.application.ingest.IngestReport;
 import com.example.domain.KnowledgeGraph;
 
 /**
@@ -67,9 +68,8 @@ public class RememberWorkflow extends Workflow<RememberWorkflow.State> {
   @StepName("persist")
   private StepEffect persistStep() {
     State s = currentState();
-    double[] embedding = GeminiEmbeddings.embed(s.text());
-    String commit = FlureeClient.remember(s.text(), s.graph(), embedding);
-    return stepEffects().updateState(s.committed(commit)).thenEnd();
+    IngestReport report = FlureeClient.rememberAsProse(s.text(), s.graph());
+    return stepEffects().updateState(s.committed(report.summary())).thenEnd();
   }
 
   public ReadOnlyEffect<State> getState() {

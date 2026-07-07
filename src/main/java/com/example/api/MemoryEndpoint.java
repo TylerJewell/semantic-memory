@@ -1,30 +1,35 @@
 package com.example.api;
 
+import akka.http.javadsl.model.StatusCodes;
 import akka.javasdk.annotations.Acl;
 import akka.javasdk.annotations.http.Get;
 import akka.javasdk.annotations.http.HttpEndpoint;
 import akka.javasdk.annotations.http.Post;
 import akka.javasdk.client.ComponentClient;
+import akka.javasdk.http.AbstractHttpEndpoint;
+import akka.javasdk.http.HttpException;
 import com.example.application.FlureeClient;
-import com.example.application.GeminiEmbeddings;
+import com.example.application.conflict.EntityResolver;
+import com.example.application.conflict.Reconciler;
+import com.example.application.conflict.Resolution;
+import com.example.application.conflict.ResolutionCascade;
+import com.example.application.ingest.FlureeTripleStore;
+import com.example.application.ingest.IngestGate;
+import com.example.application.ingest.IngestReport;
+import com.example.application.sync.SourceLayerResolver;
+import com.example.domain.Layer;
+import com.example.domain.ProvenanceEnvelope;
+import com.example.domain.Triple;
 import com.example.application.GraphExtractorAgent;
-import com.example.application.retrievers.ChunksRetriever;
-import com.example.application.retrievers.FeelingLuckyRetriever;
-import com.example.application.retrievers.GraphCompletionRetriever;
-import com.example.application.retrievers.HybridRetriever;
-import com.example.application.retrievers.LexicalChunksRetriever;
-import com.example.application.retrievers.RagCompletionRetriever;
-import com.example.application.retrievers.Retriever;
 import com.example.domain.KnowledgeGraph;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Acl(allow = @Acl.Matcher(principal = Acl.Principal.INTERNET))
 @HttpEndpoint("/api")
-public class MemoryEndpoint {
-
-  private static final List<String> COMPARE_STRATEGIES =
-      List.of("CHUNKS", "RAG", "GRAPH", "HYBRID", "FEELING_LUCKY");
+public class MemoryEndpoint extends AbstractHttpEndpoint {
 
   private final ComponentClient client;
 
@@ -33,15 +38,176 @@ public class MemoryEndpoint {
   }
 
   public record RememberRequest(String text) {}
-  public record RememberResponse(KnowledgeGraph graph, String commit) {}
-  public record RecallRequest(String question, String strategy) {}
-  public record RecallResponse(String answer, List<Retriever.Source> context, String strategy) {}
+  public record RememberResponse(KnowledgeGraph graph, String report) {}
   public record StatsResponse(int chunks, int entities, int commits) {}
   public record RecentResponse(List<String> chunks) {}
-  public record CompareRequest(String question) {}
-  public record CompareResult(String strategy, String answer, long ms) {}
-  public record CompareResponse(String question, List<CompareResult> results) {}
   public record ForgetResponse(String status) {}
+
+  // --- /sync: wire the conflict-resolution engine to the live Fluree store ---
+  public record SyncFact(String subject, String predicate, String object, String source, Double conf) {}
+  public record SyncFile(String path, String content) {}
+  public record SyncRequest(
+      String authoredGlob,
+      String corpusGlob,
+      List<SyncFact> authored,
+      List<SyncFact> corpus,
+      List<SyncFile> vaultFiles,
+      List<SyncFile> corpusUploads) {}
+  public record SyncResponse(
+      int authored, int newCount, int corroborating, int conflicting, int suppressed) {}
+
+  @Post("/sync")
+  public SyncResponse sync(SyncRequest req) {
+    // 1. Resolver rejects overlapping authored/corpus globs at construction (EC-043).
+    try {
+      new SourceLayerResolver(req.authoredGlob(), req.corpusGlob());
+    } catch (IllegalArgumentException e) {
+      throw HttpException.error(StatusCodes.CONFLICT, "source glob overlap: " + e.getMessage());
+    }
+
+    // 2. Vault-leak guard: a corpus upload must not be a copy of a vault file (EC-043).
+    List<String> vaultContents = new ArrayList<>();
+    if (req.vaultFiles() != null) {
+      for (SyncFile f : req.vaultFiles()) {
+        vaultContents.add(f.content());
+      }
+    }
+    if (req.corpusUploads() != null) {
+      for (SyncFile up : req.corpusUploads()) {
+        if (SourceLayerResolver.isVaultLeak(up.content(), vaultContents)) {
+          throw HttpException.error(StatusCodes.UNPROCESSABLE_ENTITY, "vault leak: " + up.path());
+        }
+      }
+    }
+
+    // 3. Persist authored facts directly; run corpus facts through the ingest gate.
+    FlureeTripleStore store = new FlureeTripleStore();
+    EntityResolver resolver = new EntityResolver(EntityResolver.Mode.ALIAS_AWARE, Map.of());
+    IngestReport report = new IngestReport();
+    Instant now = Instant.now();
+
+    int authoredCount = 0;
+    if (req.authored() != null) {
+      for (SyncFact f : req.authored()) {
+        Triple t =
+            new Triple(
+                f.subject(),
+                f.predicate(),
+                f.object(),
+                new ProvenanceEnvelope(Layer.AUTHORED, f.source(), now, 1.0),
+                true);
+        store.add(t);
+        authoredCount++;
+      }
+    }
+    if (req.corpus() != null) {
+      for (SyncFact f : req.corpus()) {
+        double conf = f.conf() == null ? 1.0 : f.conf();
+        Triple t =
+            new Triple(
+                f.subject(),
+                f.predicate(),
+                f.object(),
+                new ProvenanceEnvelope(Layer.DERIVED, f.source(), now, conf),
+                true);
+        IngestGate.ingest(t, store, resolver, report);
+      }
+    }
+
+    return new SyncResponse(
+        authoredCount,
+        report.newCount(),
+        report.corroborating(),
+        report.conflicting(),
+        report.suppressed());
+  }
+
+  // --- read side: reconcile persisted assertions into disagreements + conflicts ---
+  public record DisagreementsResponse(List<Reconciler.Disagreement> disagreements) {}
+  public record ConflictsResponse(List<Reconciler.Conflict> conflicts) {}
+
+  @Get("/disagreements")
+  public DisagreementsResponse disagreements() {
+    Reconciler.Result r = Reconciler.reconcile(FlureeClient.queryAllEnvelopes());
+    return new DisagreementsResponse(r.disagreements());
+  }
+
+  @Get("/conflicts")
+  public ConflictsResponse conflicts() {
+    Reconciler.Result r = Reconciler.reconcile(FlureeClient.queryAllEnvelopes());
+    return new ConflictsResponse(r.conflicts());
+  }
+
+  // --- primary read: the served (Model-1) value for a subject + predicate, plus provenance ---
+  public record FactCandidate(String object, String layer, String source) {}
+  public record FactResponse(
+      String subject,
+      String predicate,
+      String state,
+      String served,
+      String servedLayer,
+      String resolvedBy,
+      String source,
+      Integer flaggedCount,
+      List<FactCandidate> candidates,
+      String reason) {}
+
+  @Get("/fact")
+  public FactResponse fact() {
+    String subject = requestContext().queryParams().getString("subject").orElse("");
+    String predicate = requestContext().queryParams().getString("predicate").orElse("");
+
+    // queryEnvelopes slugs the subject/predicate itself; assertions are stored slugged.
+    List<FlureeClient.Envelope> envelopes = FlureeClient.queryEnvelopes(subject, predicate);
+    if (envelopes.isEmpty()) {
+      return new FactResponse(subject, predicate, "UNKNOWN", null, null, null, null, null, null, null);
+    }
+
+    List<Triple> triples = new ArrayList<>();
+    for (FlureeClient.Envelope e : envelopes) {
+      Layer layer = "authored".equals(e.layer()) ? Layer.AUTHORED : Layer.DERIVED;
+      triples.add(
+          new Triple(
+              slug(subject),
+              slug(predicate),
+              e.object(),
+              new ProvenanceEnvelope(layer, e.source(), Instant.EPOCH, e.conf()),
+              true));
+    }
+
+    Resolution res = ResolutionCascade.resolve(triples, List.of());
+    if (res instanceof Resolution.Resolved r) {
+      return new FactResponse(
+          subject,
+          predicate,
+          "RESOLVED",
+          r.winner().object(),
+          layerStr(r.winner().envelope().layer()),
+          r.resolvedBy(),
+          r.winner().envelope().source(),
+          r.flagged().size(),
+          null,
+          null);
+    }
+    Resolution.Contested c = (Resolution.Contested) res;
+    List<FactCandidate> candidates = new ArrayList<>();
+    for (Triple t : c.candidates()) {
+      candidates.add(
+          new FactCandidate(t.object(), layerStr(t.envelope().layer()), t.envelope().source()));
+    }
+    return new FactResponse(
+        subject, predicate, "CONTESTED", null, null, null, null, null, candidates, c.reason());
+  }
+
+  // Mirror FlureeClient.slug (package-private in a different package) so Triples built here
+  // carry the same slugged subject/predicate the store persisted.
+  private static String slug(String s) {
+    return s.trim().toLowerCase().replaceAll("[^a-z0-9]+", "_").replaceAll("^_|_$", "");
+  }
+
+  private static String layerStr(Layer layer) {
+    return layer == Layer.AUTHORED ? "authored" : "derived";
+  }
 
   @Post("/remember")
   public RememberResponse remember(RememberRequest req) {
@@ -50,62 +216,24 @@ public class MemoryEndpoint {
         .inSession("remember")
         .method(GraphExtractorAgent::extract)
         .invoke(req.text());
-    double[] embedding = GeminiEmbeddings.embed(req.text());
-    String commit = FlureeClient.remember(req.text(), kg, embedding);
-    return new RememberResponse(kg, commit);
-  }
-
-  @Post("/recall")
-  public RecallResponse recall(RecallRequest req) {
-    String strategy = req.strategy() == null ? "RAG" : req.strategy().trim().toUpperCase();
-    Retriever r = retrieverFor(strategy);
-    Retriever.Answer a = r.answer(req.question());
-    return new RecallResponse(a.text(), a.sources(), a.strategy());
+    IngestReport report = FlureeClient.rememberAsProse(req.text(), kg);
+    return new RememberResponse(kg, report.summary());
   }
 
   @Get("/stats")
   public StatsResponse stats() {
-    FlureeClient.Stats s = FlureeClient.stats();
-    return new StatsResponse(s.chunks(), s.entities(), s.commits());
+    FlureeClient.AssertionStats s = FlureeClient.assertionStats();
+    return new StatsResponse(s.assertions(), s.subjects(), s.assertions());
   }
 
   @Get("/recent")
   public RecentResponse recent() {
-    return new RecentResponse(FlureeClient.recentChunks(5));
-  }
-
-  @Post("/compare")
-  public CompareResponse compare(CompareRequest req) {
-    List<CompareResult> results = new ArrayList<>();
-    for (String strat : COMPARE_STRATEGIES) {
-      long t0 = System.currentTimeMillis();
-      String answer;
-      try {
-        Retriever r = retrieverFor(strat);
-        answer = r.answer(req.question()).text();
-      } catch (Exception e) {
-        answer = "(error: " + e.getMessage() + ")";
-      }
-      results.add(new CompareResult(strat, answer, System.currentTimeMillis() - t0));
-    }
-    return new CompareResponse(req.question(), results);
+    return new RecentResponse(FlureeClient.recentAssertions(5));
   }
 
   @Post("/forget")
   public ForgetResponse forget() {
     FlureeClient.forgetAll();
     return new ForgetResponse("cleared");
-  }
-
-  private Retriever retrieverFor(String s) {
-    return switch (s) {
-      case "CHUNKS" -> new ChunksRetriever();
-      case "GRAPH", "GRAPH_COMPLETION" -> new GraphCompletionRetriever(client);
-      case "HYBRID" -> new HybridRetriever(client);
-      case "LEXICAL" -> new LexicalChunksRetriever();
-      case "FEELING_LUCKY" -> new FeelingLuckyRetriever(client);
-      case "RAG", "RAG_COMPLETION" -> new RagCompletionRetriever(client);
-      default -> new RagCompletionRetriever(client);
-    };
   }
 }

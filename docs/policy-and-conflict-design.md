@@ -1,5 +1,10 @@
 # Knowledge Model, Source Separation & Conflict Resolution — Design
 
+> **Tier:** exploratory (docs/)
+> **Purpose:** Full design rationale for the hybrid Vault-LD + Cognee model and the declarative conflict-resolution policy.
+> **Audience:** Designers and implementers who need the *why* behind the architecture.
+> **Lifecycle:** churns
+
 **Status:** Design direction. Not committed to implementation.
 **Last updated:** 2026-07-05
 **Origin:** Exploratory design sessions (2026-07-04 → 2026-07-05) evolving `semantic-memory`
@@ -110,6 +115,16 @@ assertion.
 ---
 
 ## 5. Conflict resolution — the resolution cascade
+
+> **⚠ Superseded in part (design evolved → Model 1).** The authoritative `specs/` set later
+> adopted **Model 1**: a **cross-layer** disagreement (vault vs corpus) is **RESOLVED** by
+> layer-precedence — the authored value is *served* and the derived value is **flagged for
+> review** — it is **not** marked `contested`. The "Query-time semantics for a contested fact"
+> table below therefore applies **only** to a genuine no-winner (an authored tie, or same-layer
+> with no discriminator); `freeze-incumbent`/`both-contested` never apply cross-layer.
+> **Authority:** `specs/001-knowledge-conflict-resolution/spec.md` FR-C4a +
+> `specs/001-knowledge-conflict-resolution/glossary.md` (RESOLVED vs CONTESTED). The text below
+> is preserved as the exploratory record.
 
 A conflict exists when two triples share **subject + predicate** and the predicate is
 `functional` (single-valued). `multi_valued` predicates never "conflict" — multiple objects

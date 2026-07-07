@@ -1,5 +1,10 @@
 # Requirements & TODOs — Handoff
 
+> **Tier:** exploratory (docs/)
+> **Purpose:** Cross-machine handoff notes — decision history, open questions, and what-to-do next.
+> **Audience:** Anyone resuming the work on another machine.
+> **Lifecycle:** churns
+
 **Status:** Working notes for cross-machine handoff. Design directions below are **not
 committed to implementation** unless a task is checked off.
 **Last updated:** 2026-07-05
@@ -11,6 +16,14 @@ first for the *why*; this doc is the *what-to-do*).
 > truth on the other machine. Everything needed to resume is here. The decision history
 > (§H) and mirrored memory notes (Appendix) exist so the *reasoning trail* survives the move,
 > not just the conclusions.
+
+> **⚠ Superseded (authority moved to `specs/`).** Since these notes were written, the work was
+> formalized into the authoritative `specs/001-knowledge-conflict-resolution/` set, and the
+> conflict model evolved to **Model 1**: cross-layer disagreement is **RESOLVED** (authored
+> served) + **flagged**, *not* `contested`. Where this doc's notes (C8/C9) or the Appendix imply
+> a cross-layer fact is `contested`, that is **not** Model 1 — defer to `spec.md` FR-C4a + `glossary.md`.
+> `contested`/`freeze-incumbent`/`both-contested` apply only to a genuine no-winner. This file is
+> now the exploratory/decision-history record, not the source of truth.
 
 ---
 

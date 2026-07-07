@@ -41,16 +41,9 @@ public final class HttpHelper {
     return OM.readTree(resp.body());
   }
 
-  public static JsonNode recall(String question, String strategy) throws Exception {
-    String body = OM.writeValueAsString(new Recall(question, strategy));
-    return postJson("/api/recall", body);
-  }
-
   public static void remember(String text) throws Exception {
     postJson("/api/remember", OM.writeValueAsString(new Remember(text)));
   }
-
-  record Recall(String question, String strategy) {}
 
   record Remember(String text) {}
 }

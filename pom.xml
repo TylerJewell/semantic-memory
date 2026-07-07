@@ -12,6 +12,48 @@
     <packaging>jar</packaging>
     <name>semantic-memory</name>
     <dependencies>
-        <!-- Your dependencies go here -->
+        <!-- In-JVM local LLM (path C). Standalone jlama-core; no langchain4j-jlama
+             module (that needs langchain4j-core 1.13+, which conflicts with Akka's
+             pinned 1.11.0). Jackson/slf4j are excluded to defer to Akka's versions. -->
+        <dependency>
+            <groupId>com.github.tjake</groupId>
+            <artifactId>jlama-core</artifactId>
+            <version>0.8.4</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-api</artifactId>
+                </exclusion>
+                <!-- guava 32 pulls checker-qual 3.33 which the Akka runtime pins to 3.19. -->
+                <exclusion>
+                    <groupId>org.checkerframework</groupId>
+                    <artifactId>checker-qual</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Jlama's Vector path needs the incubator Vector module and native access. -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <!-- The live IT (NoKeyRoundTripIT) runs the in-JVM Jlama model under failsafe;
+                 it needs the same Vector-module + native-access args as surefire. -->
+            <plugin>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector --enable-native-access=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

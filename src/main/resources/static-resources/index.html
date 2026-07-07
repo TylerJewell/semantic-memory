@@ -223,29 +223,6 @@
         </div>
       </div>
 
-      <div class="panel recall" id="recallPanel">
-        <h2><span class="dot"></span>Recall <span class="muted small">— ask anything about what you've remembered</span></h2>
-
-        <textarea id="question" placeholder="What does Fluree provide? · How tall is the Eiffel Tower? · …" rows="3"></textarea>
-
-        <div class="strategies">
-          <span class="muted small">Strategy:</span>
-          <button class="strat active" data-strat="RAG"          title="Vector search → LLM answer (the classic RAG baseline)">RAG</button>
-          <button class="strat"        data-strat="CHUNKS"       title="Raw chunks ranked by vector similarity. No LLM call.">Chunks</button>
-          <button class="strat"        data-strat="GRAPH"        title="Walk the entity graph from matched chunks → LLM answer">Graph</button>
-          <button class="strat"        data-strat="HYBRID"       title="Combine chunks + triples → LLM answer">Hybrid</button>
-          <button class="strat"        data-strat="FEELING_LUCKY" title="Let the system pick a strategy">Lucky</button>
-        </div>
-
-        <div class="actions">
-          <button class="primary" id="recallBtn">Recall →</button>
-          <button class="secondary" id="compareBtn" title="Run all strategies on this question and compare">Compare all</button>
-        </div>
-
-        <div class="out" id="recallOut">
-          <div class="empty-state muted small">Ask a question above and pick a strategy — answers will appear here with the retrieved context.</div>
-        </div>
-      </div>
     </div>
   </div>
 </section>
@@ -358,7 +335,6 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let currentStrategy = 'RAG';
 
 async function call(path, body) {
   const opts = body
@@ -374,12 +350,6 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','
 document.querySelectorAll('.tab-btn').forEach(b => b.onclick = () => {
   document.querySelectorAll('.tab-btn').forEach(x => x.classList.toggle('active', x === b));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'tab-' + b.dataset.tab));
-});
-
-// Strategy picker
-document.querySelectorAll('.strat').forEach(s => s.onclick = () => {
-  document.querySelectorAll('.strat').forEach(x => x.classList.toggle('active', x === s));
-  currentStrategy = s.dataset.strat;
 });
 
 // Header stats polling
@@ -424,64 +394,11 @@ $('rememberBtn').onclick = async () => {
     const rels = (res.graph.relationships||[]).map(r => `<div class="triple">${esc(r.source)} —[${esc(r.label)}]→ ${esc(r.target)}</div>`).join('');
     out.innerHTML = `<div><b>Entities (${(res.graph.entities||[]).length})</b><br>${ents||'<span class="muted">none</span>'}</div>
       <div style="margin-top:10px"><b>Relationships (${(res.graph.relationships||[]).length})</b>${rels||'<div class="muted">none</div>'}</div>
-      <div style="margin-top:10px"><b>Fluree commit</b><div class="commit">${esc(res.commit)}</div></div>`;
-    // Flash the Recall panel to hint "now you can ask"
-    const rp = $('recallPanel'); rp.classList.remove('flash'); void rp.offsetWidth; rp.classList.add('flash');
+      <div style="margin-top:10px"><b>Ingest report</b><div class="commit">${esc(res.report)}</div></div>`;
     refreshStats();
   } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
   finally { btn.disabled = false; }
 };
-
-// Recall (single strategy)
-$('recallBtn').onclick = async () => {
-  const question = $('question').value.trim();
-  if (!question) return;
-  const btn = $('recallBtn'), out = $('recallOut');
-  btn.disabled = true; out.innerHTML = `<span class="muted small">Searching memory (${currentStrategy}) &amp; answering…</span>`;
-  try {
-    const res = await call('/api/recall', { question, strategy: currentStrategy });
-    const ctx = (res.context||[]).map((c,i) => {
-      // context items are now {text, score}; score is null for graph triples
-      const text = (c && typeof c === 'object') ? (c.text || '') : String(c);
-      const score = (c && typeof c === 'object') ? c.score : null;
-      const scoreBadge = (score != null)
-        ? `<span class="score" title="cosine similarity">${score.toFixed(3)}</span>`
-        : `<span class="score" title="graph-derived">graph</span>`;
-      return `<div class="ctx-hit">
-                <span class="rank">${i+1}</span>
-                <span style="flex:1">${esc(text)}</span>
-                ${scoreBadge}
-              </div>`;
-    }).join('');
-    out.innerHTML = `<div class="answer">${esc(res.answer)}</div>
-      <div style="margin-top:10px"><b class="muted small">Retrieved context · strategy: ${esc(res.strategy)}</b>
-        ${ctx || '<div class="muted small">nothing matched</div>'}</div>`;
-  } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
-  finally { btn.disabled = false; }
-};
-
-// Compare all strategies side-by-side
-$('compareBtn').onclick = async () => {
-  const question = $('question').value.trim();
-  if (!question) return;
-  const btn = $('compareBtn'), out = $('recallOut');
-  btn.disabled = true; out.innerHTML = '<span class="muted small">Running all 5 strategies in parallel…</span>';
-  try {
-    const res = await call('/api/compare', { question });
-    const cells = res.results.map(r =>
-      `<div class="compare-cell"><h4>${esc(r.strategy)}</h4>
-         <div>${esc(r.answer)}</div>
-         <div class="ms">${r.ms} ms</div></div>`).join('');
-    out.innerHTML = `<div class="muted small" style="margin-bottom:6px">Same question · 5 strategies</div>
-      <div class="compare-grid">${cells}</div>`;
-  } catch (e) { out.innerHTML = `<span style="color:#f85149">${esc(e.message)}</span>`; }
-  finally { btn.disabled = false; }
-};
-
-// Recall on Enter (Shift+Enter = newline, plain Enter = submit)
-$('question').addEventListener('keydown', (ev) => {
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); $('recallBtn').click(); }
-});
 
 // File import
 function splitParagraphs(text) {
@@ -510,7 +427,6 @@ async function importFile(file) {
   lbl.textContent = `Imported ${ok}/${paras.length} paragraphs from ${file.name}` + (fail ? ` (${fail} failed)` : '');
   btn.disabled = false;
   refreshStats();
-  const rp = $('recallPanel'); rp.classList.remove('flash'); void rp.offsetWidth; rp.classList.add('flash');
 }
 
 $('fileInput').addEventListener('change', (e) => importFile(e.target.files[0]));
@@ -534,7 +450,6 @@ $('forgetLink').onclick = async () => {
     refreshStats();
     $('recentList').innerHTML = '<span class="muted small">memory cleared.</span>';
     $('rememberOut').innerHTML = '<span class="muted small">Memory cleared.</span>';
-    $('recallOut').innerHTML = '<div class="empty-state muted small">Memory is empty. Remember something above to get started.</div>';
   } catch (e) { alert('forget failed: ' + e.message); }
 };
 </script>

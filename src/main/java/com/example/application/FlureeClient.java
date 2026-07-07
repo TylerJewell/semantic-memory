@@ -1,12 +1,20 @@
 package com.example.application;
 
+import com.example.application.conflict.EntityResolver;
+import com.example.application.ingest.FlureeTripleStore;
+import com.example.application.ingest.IngestGate;
+import com.example.application.ingest.IngestReport;
 import com.example.domain.KnowledgeGraph;
+import com.example.domain.Layer;
+import com.example.domain.ProvenanceEnvelope;
+import com.example.domain.Triple;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -76,6 +84,32 @@ public final class FlureeClient {
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * Persist an extracted graph as provenanced {@code ex:Assertion} nodes on the unified fact store.
+   * Each relationship becomes a DERIVED assertion (subject/predicate/object from the relationship,
+   * source {@code "prose:<hash>"}, confidence 0.7) and is run through the {@link IngestGate} so it
+   * participates in the SAME reconciliation cascade as authored/synced facts — corroborate,
+   * conflict, and new are all handled. Returns the {@link IngestReport} summarizing the batch.
+   */
+  public static IngestReport rememberAsProse(String text, KnowledgeGraph kg) {
+    FlureeTripleStore store = new FlureeTripleStore();
+    EntityResolver resolver = new EntityResolver(EntityResolver.Mode.ALIAS_AWARE, Map.of());
+    IngestReport report = new IngestReport();
+    Instant now = Instant.now();
+    String source = "prose:" + Integer.toHexString(text.hashCode());
+    for (KnowledgeGraph.Relationship r : kg.relationships()) {
+      Triple derived =
+          new Triple(
+              r.source(),
+              r.label(),
+              r.target(),
+              new ProvenanceEnvelope(Layer.DERIVED, source, now, 0.7),
+              true);
+      IngestGate.ingest(derived, store, resolver, report);
+    }
+    return report;
   }
 
   /** A single ranked memory hit returned by similarity / lexical search. */
@@ -170,8 +204,8 @@ public final class FlureeClient {
   /**
    * For each provided chunk text, walk to entities mentionedIn that chunk and
    * pull one hop of outgoing predicates. Returns formatted triples like
-   * {@code "Akka --provides--> Resilience"} — the graph context the QaAgent uses
-   * alongside vector chunks in HYBRID / GRAPH strategies.
+   * {@code "Akka --provides--> Resilience"} — one-hop graph context around the
+   * given chunks.
    */
   public static List<String> entityNeighborhood(List<String> chunkTexts, int limit) {
     if (chunkTexts.isEmpty()) {
@@ -260,6 +294,78 @@ public final class FlureeClient {
     return new Stats(chunks, entities, chunks);
   }
 
+  /** Distinct assertion subjects and total {@code ex:Assertion} nodes in the fact store. */
+  public record AssertionStats(int subjects, int assertions) {}
+
+  /**
+   * Count distinct subjects and total assertions across the provenanced {@code ex:Assertion} nodes
+   * — the observe surface for the unified fact model (mirrors {@link #sparqlCount}).
+   */
+  public static AssertionStats assertionStats() {
+    int subjects = sparqlCountVar("?s", "?a <" + EX + "subject> ?s");
+    int assertions = sparqlCountVar("?a", "?a <" + EX + "subject> ?s");
+    return new AssertionStats(subjects, assertions);
+  }
+
+  private static int sparqlCountVar(String countVar, String pattern) {
+    try {
+      String q =
+          "SELECT (COUNT(DISTINCT "
+              + countVar
+              + ") AS ?n) FROM <"
+              + LEDGER
+              + "> WHERE { "
+              + pattern
+              + " }";
+      JsonNode root = OM.readTree(sparql(q));
+      JsonNode bindings = root.at("/results/bindings");
+      if (bindings.isArray() && bindings.size() > 0) {
+        return bindings.get(0).at("/n/value").asInt(0);
+      }
+    } catch (Exception ignored) {
+    }
+    return 0;
+  }
+
+  /** Most recent {@code limit} assertion facts as {@code "subject predicate object"} strings. */
+  public static List<String> recentAssertions(int limit) {
+    try {
+      Map<String, Object> q = new LinkedHashMap<>();
+      q.put("@context", CONTEXT);
+      q.put("from", LEDGER);
+      q.put("select", List.of("?s", "?p", "?o"));
+      q.put(
+          "where",
+          List.of(
+              Map.of(
+                  "@id",
+                  "?a",
+                  "@type",
+                  "ex:Assertion",
+                  "ex:subject",
+                  "?s",
+                  "ex:predicate",
+                  "?p",
+                  "ex:object",
+                  "?o")));
+      q.put("limit", Math.max(1, limit));
+      String resp =
+          post("/v1/fluree/query?ledger=" + LEDGER, OM.writeValueAsString(q), "application/json");
+      JsonNode arr = OM.readTree(resp);
+      List<String> out = new ArrayList<>();
+      if (arr.isArray()) {
+        for (JsonNode row : arr) {
+          if (row.isArray() && row.size() >= 3) {
+            out.add(row.get(0).asText() + " " + row.get(1).asText() + " " + row.get(2).asText());
+          }
+        }
+      }
+      return out;
+    } catch (Exception e) {
+      return List.of();
+    }
+  }
+
   private static int sparqlCount(String pattern) {
     try {
       String q =
@@ -307,6 +413,149 @@ public final class FlureeClient {
       String del = "DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }";
       post("/v1/fluree/update?ledger=" + LEDGER, del, "application/sparql-update");
     } catch (Exception ignored) {
+    }
+  }
+
+  /**
+   * Persist a per-triple provenance assertion (reification) as an {@code ex:Assertion}
+   * node: the slugged subject/predicate/object plus the envelope (layer, source,
+   * asserted timestamp, confidence) and an active flag. Returns the commit hash,
+   * like {@link #remember}. This is the persistence foundation the conflict engine
+   * queries via {@link #queryEnvelopes}.
+   */
+  public static String insertAssertion(com.example.domain.Triple t) {
+    try {
+      com.example.domain.ProvenanceEnvelope env = t.envelope();
+      String subj = slug(t.subject());
+      String pred = slug(t.predicate());
+      String obj = slug(t.object());
+      String layer =
+          env.layer() == com.example.domain.Layer.AUTHORED ? "authored" : "derived";
+      String key = subj + "|" + pred + "|" + obj + "|" + env.source() + "|" + env.asserted();
+      String assertId = "ex:assert_" + Integer.toHexString(key.hashCode());
+
+      Map<String, Object> node = new LinkedHashMap<>();
+      node.put("@id", assertId);
+      node.put("@type", "ex:Assertion");
+      node.put("ex:subject", subj);
+      node.put("ex:predicate", pred);
+      node.put("ex:object", obj);
+      node.put("ex:layer", layer);
+      node.put("ex:source", env.source());
+      node.put("ex:asserted", env.asserted().toString());
+      node.put("ex:conf", env.conf());
+      node.put("ex:active", t.active());
+
+      Map<String, Object> payload = Map.of("@context", CONTEXT, "@graph", List.of(node));
+      String resp =
+          post("/v1/fluree/insert?ledger=" + LEDGER, OM.writeValueAsString(payload), "application/json");
+      JsonNode r = OM.readTree(resp);
+      String hash = r.path("commit").path("hash").asText("");
+      return hash.isEmpty() ? r.path("tx-id").asText("(committed)") : hash;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  /** A provenance envelope as stored on an {@code ex:Assertion} node. */
+  public record Envelope(String object, String layer, String source, double conf) {}
+
+  /**
+   * Query provenance assertions for a given subject + predicate (both slugged),
+   * returning one {@link Envelope} per matching {@code ex:Assertion} node. Mirrors
+   * the JSON-LD query pattern used elsewhere in this client. Degrades to an empty
+   * list on error, like {@link #bm25Search}.
+   */
+  public static java.util.List<Envelope> queryEnvelopes(String subject, String predicate) {
+    try {
+      Map<String, Object> where = new LinkedHashMap<>();
+      where.put("@id", "?a");
+      where.put("@type", "ex:Assertion");
+      where.put("ex:subject", slug(subject));
+      where.put("ex:predicate", slug(predicate));
+      where.put("ex:object", "?object");
+      where.put("ex:layer", "?layer");
+      where.put("ex:source", "?source");
+      where.put("ex:conf", "?conf");
+
+      Map<String, Object> q = new LinkedHashMap<>();
+      q.put("@context", CONTEXT);
+      q.put("from", LEDGER);
+      q.put("select", List.of("?object", "?layer", "?source", "?conf"));
+      q.put("where", where);
+
+      String resp =
+          post("/v1/fluree/query?ledger=" + LEDGER, OM.writeValueAsString(q), "application/json");
+      JsonNode arr = OM.readTree(resp);
+      List<Envelope> out = new ArrayList<>();
+      if (arr.isArray()) {
+        for (JsonNode row : arr) {
+          if (row.isArray() && row.size() >= 4) {
+            out.add(
+                new Envelope(
+                    row.get(0).asText(),
+                    row.get(1).asText(),
+                    row.get(2).asText(),
+                    row.get(3).asDouble()));
+          }
+        }
+      }
+      return out;
+    } catch (Exception e) {
+      return List.of();
+    }
+  }
+
+  /** An {@link Envelope} together with the subject + predicate it was asserted on. */
+  public record ScopedEnvelope(String subject, String predicate, Envelope envelope) {}
+
+  /**
+   * Query every {@code ex:Assertion} node in the ledger, returning one
+   * {@link ScopedEnvelope} (subject + predicate + envelope) per row. Mirrors
+   * {@link #queryEnvelopes} but without a subject/predicate filter — the store
+   * backing the ingest gate uses this for {@code allActive()}. Degrades to an
+   * empty list on error.
+   */
+  public static java.util.List<ScopedEnvelope> queryAllEnvelopes() {
+    try {
+      Map<String, Object> where = new LinkedHashMap<>();
+      where.put("@id", "?a");
+      where.put("@type", "ex:Assertion");
+      where.put("ex:subject", "?subject");
+      where.put("ex:predicate", "?predicate");
+      where.put("ex:object", "?object");
+      where.put("ex:layer", "?layer");
+      where.put("ex:source", "?source");
+      where.put("ex:conf", "?conf");
+
+      Map<String, Object> q = new LinkedHashMap<>();
+      q.put("@context", CONTEXT);
+      q.put("from", LEDGER);
+      q.put("select", List.of("?subject", "?predicate", "?object", "?layer", "?source", "?conf"));
+      q.put("where", where);
+
+      String resp =
+          post("/v1/fluree/query?ledger=" + LEDGER, OM.writeValueAsString(q), "application/json");
+      JsonNode arr = OM.readTree(resp);
+      List<ScopedEnvelope> out = new ArrayList<>();
+      if (arr.isArray()) {
+        for (JsonNode row : arr) {
+          if (row.isArray() && row.size() >= 6) {
+            out.add(
+                new ScopedEnvelope(
+                    row.get(0).asText(),
+                    row.get(1).asText(),
+                    new Envelope(
+                        row.get(2).asText(),
+                        row.get(3).asText(),
+                        row.get(4).asText(),
+                        row.get(5).asDouble())));
+          }
+        }
+      }
+      return out;
+    } catch (Exception e) {
+      return List.of();
     }
   }
 
