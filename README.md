@@ -1,168 +1,159 @@
 # semantic-memory
 
-A durable, queryable knowledge base that AI agents can share — built on
-**Akka SDK 3.6** for the control plane and **Fluree** as the unified graph +
-vector + provenance store.
+A provenanced fact store with a declarative conflict-resolution layer.
 
-Ingest text or documents; the system extracts entities and relationships with an
-LLM, embeds every chunk, and commits both the graph and the vector to Fluree in
-a single cryptographically-recorded transaction. Ask a natural-language question
-and pick one of five retrieval strategies — or run all of them side-by-side.
+Every fact records who asserted it and where from. When two sources disagree, a
+defined precedence order decides which value is served — and surfaces the
+disagreement rather than hiding it.
 
-## Highlights
+Built on the **Akka Java SDK** for the service and **Fluree** as the store.
 
-- **Two processes.** An Akka JVM service and the Fluree binary. That's the whole
-  runtime footprint.
-- **~550 MB resident.** Measured on a running instance (526 MB Akka + 24 MB
-  Fluree).
-- **~5 s cold start.**
-- **Durable ingest pipeline.** The `RememberWorkflow` is an Akka SDK
-  `Workflow` — a crashed step resumes at the failed step across a process
-  restart. State is journaled, not "best-effort."
-- **Five retrieval strategies** — `CHUNKS`, `RAG`, `GRAPH`, `HYBRID`,
-  `FEELING_LUCKY`. A built-in compare-all mode runs every strategy on a single
-  question in parallel and returns them side-by-side.
-- **Cryptographic provenance.** Every `/api/remember` returns a Fluree commit
-  hash. Fluree's time-travel queries reconstruct any prior state.
-- **Native structured output.** The graph extractor uses
-  `responseConformsTo(KnowledgeGraph.class)` — schema generation and validation
-  are the Akka agent's job, not an external library.
-- **No SaaS dependency.** No serverless queue, no vector-DB-as-a-service.
-  Everything runs locally.
+## The problem
 
-## Benchmark
+Most knowledge stores treat every fact as equal and anonymous. When two sources
+assert different values for the same thing, the store either overwrites silently
+(last write wins) or requires reconciliation upstream. Neither records why one
+value was chosen, and neither tells you a conflict occurred.
 
-10 items from the HotpotQA distractor validation split, 99 paragraphs ingested
-(gold + distractors), one multi-hop question per item, scored with the official
-HotpotQA token-level F1 + exact match. See `scripts/eval_adapter.py`.
+## What this does
 
-| Strategy       | Exact Match | Token F1 | Mean latency |
-| -------------- | ----------: | -------: | -----------: |
-| CHUNKS (no LLM)| 0.00        | 0.01     | 2.3 s        |
-| RAG            | 0.60        | 0.74     | 4.5 s        |
-| GRAPH          | 0.70        | 0.84     | 4.4 s        |
-| **HYBRID**     | **0.70**    | **0.88** | **4.6 s**    |
-| FEELING_LUCKY  | 0.70        | 0.84     | 6.8 s        |
+One primitive — the provenanced assertion:
+
+```
+Assertion { subject · predicate · object
+            layer   authored | derived
+            source  where it came from
+            asserted · confidence · active }
+```
+
+Two ways in, one graph:
+
+```
+prose  ──/remember──▶  extract ─┐
+                                ├──▶  assertion  ──▶  reconcile
+files  ──/sync─────▶  parse ────┘
+```
+
+Structured reads out:
+
+```
+GET /fact            the served value for a subject + predicate, with provenance
+GET /disagreements   where a lower-precedence source disagrees with the served value
+GET /conflicts       ties the system will not resolve on its own
+```
+
+## How conflicts resolve
+
+A fixed precedence order, tried in sequence until one produces a winner:
+
+```
+layer-precedence  →  source-priority  →  confidence  →  recency
+```
+
+- **RESOLVED** — a winner is served. Cross-layer losers are recorded and flagged
+  for review.
+- **CONTESTED** — no winner (e.g. two authored values of equal priority). Both are
+  kept, the served value is frozen, and a human decides.
+
+Authored facts (curated) outrank derived facts (mined). Recency may break a tie
+between two mined facts; it is never used to overrule a human assertion. On an
+unresolvable tie the system flags rather than guesses.
+
+## Properties
+
+- **Provenance.** Every fact carries its layer, source, and confidence.
+- **Never blocks.** A contradicting fact is stored and surfaced, not dropped.
+- **Deletion is scoped.** Deleting a fact scans for dependents (facts inferred
+  from it, rivals it was outranking, sources that re-assert it) and asks before
+  removing them.
+- **Declarative policy.** Precedence, cardinality, and ingest-gate behavior are
+  set in a readable `policy.md`, not in code.
+- **Runs without keys.** An in-JVM model handles extraction; no external account
+  or network is required on the ingest path. Supply a Gemini key to use a hosted
+  model instead.
+
+## How it was built
+
+Built with [Akka Specify](https://doc.akka.io/sdk/spec-driven-development.html) and Fluree, using loop-driven
+engineering and spec-driven development. Requirements were captured as an
+executable specification and driven to completion in a loop: each requirement is
+a checkable condition, and the build advances by running the checks, resolving
+failures, and repeating until every condition holds.
+
+See `specs/001-knowledge-conflict-resolution/` for the specification, the
+conditions (`CONFORMANCE.md`), and the architecture (`architecture.md`).
+
+## HTTP API
+
+| Method + path          | Query / body                     | Returns |
+| ---------------------- | -------------------------------- | ------- |
+| `POST /api/remember`   | `{text}`                         | extracted graph + ingest report |
+| `POST /api/sync`       | authored/corpus facts + globs    | ingest report (409 on overlap, 422 on vault-leak) |
+| `GET  /api/fact`       | `?subject=&predicate=`           | served value + provenance, or CONTESTED / UNKNOWN |
+| `GET  /api/disagreements` | —                             | facts where a lower-precedence source disagrees |
+| `GET  /api/conflicts`  | —                                | unresolved ties awaiting a human |
+| `GET  /api/stats`      | —                                | counts over stored assertions |
+| `GET  /api/recent`     | —                                | recent assertions |
+| `POST /api/forget`     | `{}`                             | clears the store |
 
 ## Prerequisites
 
-- Java 21+ and Maven 3.9+
+- Java 21+ and Maven 3.9+.
 - The Fluree binary — download from
-  [fluree/db releases](https://github.com/fluree/db/releases)
-- A Google Gemini API key exported as `GOOGLE_AI_GEMINI_API_KEY`
-- The Akka SDK context docs (fetched via `akka specify init .` after installing
-  the [Akka CLI](https://doc.akka.io/operations/cli/installation.html))
-
-> ⚠️ **Licensing note.** This project's own code is MIT, but Akka SDK
-> (Business Source License 1.1) and Fluree DB (EPL 2.0) are separate
-> third-party components with their own terms. Anyone deploying this stack
-> — especially for commercial or production use — is responsible for
-> obtaining the appropriate licenses **directly from Akka Inc. and Fluree
-> PBC**. See `NOTICE.md` for details.
+  [fluree/db releases](https://github.com/fluree/db/releases).
+- Optional: a Google Gemini API key exported as `GOOGLE_AI_GEMINI_API_KEY`. Absent,
+  the service uses an in-JVM model (downloaded once on first ingest, ~1 GB).
 
 ## Quick start
 
 ```bash
-export GOOGLE_AI_GEMINI_API_KEY=...
 ./start.sh        # or start.bat on Windows
 ```
 
 `start.sh` initializes Fluree, launches its HTTP server on `127.0.0.1:8090`,
-creates the `memory` ledger if it doesn't exist, then runs `mvn compile
-exec:java`. Open **http://localhost:9000/** when the service says it's ready.
-
-## UI
-
-Two tabs:
-
-- **App** — Remember / Recall / Compare-all. Live memory-counter chip, drag-drop
-  `.txt`/`.md` import with progress bar, five selectable retrieval strategies,
-  cosine-similarity score badges on retrieved context, single-click "clear
-  memory."
-- **Architecture** — side-by-side comparison of this stack against Cognee (a
-  popular Python AI-memory framework), with measured footprint numbers and
-  aligned diagrams.
-
-## HTTP API
-
-| Method + path         | Body                            | Returns                                                     |
-| --------------------- | ------------------------------- | ----------------------------------------------------------- |
-| `POST /api/remember`  | `{text}`                        | `{graph, commit}`                                           |
-| `POST /api/recall`    | `{question, strategy?}`         | `{answer, context: [{text, score?}], strategy}`             |
-| `POST /api/compare`   | `{question}`                    | `{question, results: [{strategy, answer, ms}]}`             |
-| `POST /api/forget`    | `{}`                            | `{status: "cleared"}`                                       |
-| `GET  /api/stats`     | —                               | `{chunks, entities, commits}`                               |
-| `GET  /api/recent`    | —                               | `{chunks: [...]}`                                           |
-
-`strategy` accepts `CHUNKS`, `RAG`, `GRAPH`, `HYBRID`, `LEXICAL`,
-`FEELING_LUCKY` (case-insensitive; default is `RAG`).
-
-## Evaluation
-
-```bash
-python -X utf8 scripts/eval_adapter.py --items 10
-```
-
-Fetches 10 HotpotQA dev-set distractor items, ingests all 99 paragraphs (gold +
-distractor), asks the multi-hop question of every selected strategy, and prints
-a table of exact-match, F1, and mean latency per strategy.
-
-## Architecture in one paragraph
-
-`RememberWorkflow` orchestrates the ingest: `GraphExtractorAgent` returns a
-typed `KnowledgeGraph` from the LLM, `GeminiEmbeddings` produces a 768-dim
-vector, `FlureeClient` commits both as a single JSON-LD transaction that
-Fluree records with a cryptographic hash. On recall, the endpoint dispatches
-to one of the five retrievers (or the `FeelingLuckyRetriever` classifier picks
-one for you), each of which returns an `Answer` with cosine-scored evidence.
-The QaAgent is instructed to be terse — HotpotQA answers are single entities
-or `yes`/`no`, not sentences.
+creates the `memory` ledger, then builds and runs the service. With no
+`GOOGLE_AI_GEMINI_API_KEY` set, ingest runs on the local in-JVM model.
 
 ## Repository layout
 
 ```
 src/main/java/com/example/
   api/                  HTTP endpoints (MemoryEndpoint, UiEndpoint)
-  application/          Agents, workflow, Fluree/embeddings clients, retrievers
-  domain/               KnowledgeGraph record — the extraction contract
+  application/
+    conflict/           resolution cascade, reconciler, contested reads, entity resolution
+    ingest/             ingest gate, triple store, tombstones
+    deletion/           deletion-impact scan
+    policy/             policy.md parser + author-time lint
+    sync/               source-layer resolver, vault/corpus sync
+    model/              key-gated model selection, in-JVM Jlama adapter
+    embeddings/         embeddings SPI (local ONNX / Gemini)
+    GraphExtractorAgent, RememberWorkflow, FlureeClient
+  domain/               Triple, ProvenanceEnvelope, Layer, Cardinality
 src/main/resources/
-  application.conf      Gemini model config (reads $GOOGLE_AI_GEMINI_API_KEY)
-  static-resources/     The web UI (single index.html)
-src/test/java/          JUnit tests against the running service
-scripts/                Python HotpotQA eval harness
+  policies/             preset policy files
+conformance/            the conform runner + receipt log
+specs/                  specification, exit conditions, architecture
 ```
-
-## Prior art & credit
-
-The overall four-verb API surface (`remember` / `recall` / `forget` / `improve`)
-and the strategy taxonomy borrow from
-[Cognee](https://github.com/topoteretes/cognee), a Python AI-memory framework
-whose eval framework was the reference for this project's benchmark harness.
-The Architecture tab shows the footprint difference side-by-side.
 
 ## License
 
 **This project's own source code is MIT.** See `LICENSE`.
 
-That covers only the code in this repository. The runtime depends on two
-third-party components with their own licensing terms, which are **not** covered
-by the MIT license here and must be obtained separately by anyone deploying
-this stack:
+That covers only the code in this repository. The runtime depends on third-party
+components with their own licensing terms, which are **not** covered by the MIT
+license here and must be obtained separately by anyone deploying this stack:
 
-- **Akka SDK / Akka runtime** — released under the
-  [Business Source License 1.1](https://www.akka.io/bsl-license) by Akka Inc.
-  Development, testing, and small-scale use are permitted for free; commercial
-  or production deployments above the BSL threshold require a commercial
-  license obtained directly from Akka Inc. See
-  <https://www.akka.io/pricing> for current terms.
+- **Akka SDK / Akka runtime** — [Business Source License 1.1](https://www.akka.io/bsl-license)
+  by Akka Inc. Development, testing, and small-scale use are free; commercial or
+  production deployments above the BSL threshold require a commercial license from
+  Akka Inc. See <https://www.akka.io/pricing>.
+- **Fluree DB** — the open-source Fluree DB binary is released under the
+  [Eclipse Public License 2.0](https://github.com/fluree/db/blob/main/LICENSE).
+  Fluree's hosted / commercial products have separate terms from
+  [Fluree PBC](https://flur.ee/).
+- **Jlama** — used for in-JVM inference; see the
+  [Jlama project](https://github.com/tjake/Jlama) for its terms.
 
-- **Fluree DB** — the open-source Fluree DB binary this project uses (v4.1.1+)
-  is released under the [Eclipse Public License 2.0](https://github.com/fluree/db/blob/main/LICENSE).
-  Fluree's hosted / commercial products (Fluree Core, Fluree Solo, enterprise
-  support) have separate terms obtained directly from
-  [Fluree PBC](https://flur.ee/). Verify current licensing for your intended
-  use with them.
-
-If you fork or deploy this project you are responsible for holding valid
-licenses for both dependencies according to your use case. This repository's
-MIT grant does not — and cannot — sublicense them.
+If you fork or deploy this project you are responsible for holding valid licenses
+for these dependencies. This repository's MIT grant does not — and cannot —
+sublicense them.

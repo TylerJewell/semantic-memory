@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>semantic-memory — a provenanced fact store</title>
+<style>
+  :root {
+    --fg: #1a1a1a; --muted: #5a5a5a; --bg: #ffffff; --line: #e2e2e2;
+    --code-bg: #f6f6f4; --accent: #333;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6e6e6; --muted: #9a9a9a; --bg: #101010; --line: #2a2a2a;
+            --code-bg: #181818; --accent: #cfcfcf; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--sans); font-size: 16px; line-height: 1.6;
+  }
+  main { max-width: 46rem; margin: 0 auto; padding: 4rem 1.5rem 6rem; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 2rem; margin-bottom: 2.5rem; }
+  h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 .5rem; letter-spacing: -0.01em; }
+  .tagline { font-size: 1.05rem; color: var(--fg); margin: 0 0 1rem; }
+  .lede { color: var(--muted); margin: 0; }
+  h2 {
+    font-size: .8rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--muted); margin: 2.75rem 0 1rem;
+  }
+  p { margin: 0 0 1rem; }
+  a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--line); }
+  a:hover { text-decoration-color: var(--muted); }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 1rem 1.1rem; overflow-x: auto; margin: 0 0 1rem;
+    font-family: var(--mono); font-size: .82rem; line-height: 1.5; color: var(--accent);
+  }
+  code { font-family: var(--mono); font-size: .88em; }
+  ul { margin: 0 0 1rem; padding-left: 1.1rem; }
+  li { margin: 0 0 .5rem; }
+  li b { font-weight: 600; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 34rem) { .two { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--line); border-radius: 6px; padding: 1rem 1.1rem; }
+  .card h3 { margin: 0 0 .4rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .card p { margin: 0; color: var(--fg); font-size: .95rem; }
+  footer { border-top: 1px solid var(--line); margin-top: 3rem; padding-top: 1.5rem; color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>semantic-memory</h1>
+    <p class="tagline">A provenanced fact store with a declarative conflict-resolution layer.</p>
+    <p class="lede">Every fact records who asserted it and where from. When two sources disagree,
+    a defined precedence order decides which value is served — and surfaces the disagreement
+    rather than hiding it.</p>
+  </header>
+
+  <h2>The problem</h2>
+  <p>Most knowledge stores treat every fact as equal and anonymous. When two sources assert
+  different values for the same thing, the store either overwrites silently (last write wins)
+  or requires reconciliation upstream. Neither records why one value was chosen, and neither
+  tells you a conflict occurred.</p>
+
+  <h2>What this does</h2>
+  <p>One primitive — the provenanced assertion:</p>
+<pre>Assertion { subject · predicate · object
+            layer   authored | derived
+            source  where it came from
+            asserted · confidence · active }</pre>
+  <p>Two ways in, one graph:</p>
+<pre>prose  ──/remember──▶  extract ─┐
+                                ├──▶  assertion  ──▶  reconcile
+files  ──/sync─────▶  parse ────┘</pre>
+  <p>Structured reads out:</p>
+<pre>GET /fact            the served value for a subject + predicate, with provenance
+GET /disagreements   where a lower-precedence source disagrees with the served value
+GET /conflicts       ties the system will not resolve on its own</pre>
+
+  <h2>How conflicts resolve</h2>
+  <p>A fixed precedence order, tried in sequence until one produces a winner:</p>
+<pre>layer-precedence  →  source-priority  →  confidence  →  recency</pre>
+  <div class="two">
+    <div class="card">
+      <h3>Resolved</h3>
+      <p>A winner is served. Cross-layer losers are recorded and flagged for review.</p>
+    </div>
+    <div class="card">
+      <h3>Contested</h3>
+      <p>No winner — for example two authored values of equal priority. Both are kept, the
+      served value is frozen, and a human decides.</p>
+    </div>
+  </div>
+  <p style="margin-top:1rem">Authored facts (curated) outrank derived facts (mined). Recency may
+  break a tie between two mined facts; it is never used to overrule a human assertion. On an
+  unresolvable tie the system flags rather than guesses.</p>
+
+  <h2>Properties</h2>
+  <ul>
+    <li><b>Provenance.</b> Every fact carries its layer, source, and confidence.</li>
+    <li><b>Never blocks.</b> A contradicting fact is stored and surfaced, not dropped.</li>
+    <li><b>Deletion is scoped.</b> Deleting a fact scans for dependents — facts inferred from it,
+    rivals it was outranking, sources that re-assert it — and asks before removing them.</li>
+    <li><b>Declarative policy.</b> Precedence, cardinality, and ingest-gate behavior are set in a
+    readable policy file, not in code.</li>
+    <li><b>Runs without keys.</b> An in-JVM model handles extraction; no external account or
+    network is required on the ingest path. Supply a hosted-model key to use one instead.</li>
+  </ul>
+
+  <h2>How it was built</h2>
+  <p>Built with <a href="https://doc.akka.io/sdk/spec-driven-development.html">Akka Specify</a>
+  and Fluree, using loop-driven engineering and spec-driven development. Requirements were
+  captured as an executable specification and driven to completion in a loop: each requirement
+  is a checkable condition, and the build advances by running the checks, resolving failures,
+  and repeating until every condition holds.</p>
+
+  <footer>
+    semantic-memory · source code MIT · runtime depends on Akka SDK (BSL 1.1),
+    Fluree DB (EPL 2.0), and Jlama, each under their own terms.
+  </footer>
+</main>
+</body>
+</html>
