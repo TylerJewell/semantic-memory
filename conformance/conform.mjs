@@ -159,6 +159,83 @@ const ec = (id, pass, detail) => results.push({ id, status: pass ? 'GREEN' : 'RE
     `${srcFiles.length} src files; call sites bypassing the seam: ${bypass.map(p => norm(p).split('/').pop()).join(',') || 'none'}`);
 }
 
+// ===== Site & README conformance (aligns to Akka principles — akka.ai/llms.txt) =====
+{
+  const readme = read('README.md');
+  const siteFiles = walk('site').filter(p => p.endsWith('.html'));
+  const siteText = siteFiles.map(read).join('\n');
+  const marketing = readme + '\n' + siteText;
+  const conf = read(join(SPEC, 'CONFORMANCE.md'));
+  const ecGreen = (id) => new RegExp(`${id}\\b[\\s\\S]*?status:\\s*GREEN`).test(conf);
+
+  // EC-S01 (Transparency About Identity) — no decommissioned feature presented as current
+  {
+    const dead = ['/recall', '/compare', 'HotpotQA', 'five retrieval strateg', 'FeelingLucky',
+      'ChunksRetriever', 'RagCompletionRetriever', 'QaAgent', 'retrieval strateg'];
+    const hits = dead.filter(d => new RegExp(d.replace(/[/]/g, '\\/'), 'i').test(marketing));
+    ec('S01', hits.length === 0, `decommissioned-as-current terms in README/site: ${hits.join(',') || 'none'}`);
+  }
+  // EC-S02 (Never Fail — engineering-led tone) — no hype/superlative language
+  {
+    const banned = ['revolutionary', 'seamless', 'powerful', 'effortless', 'blazing',
+      'cutting-edge', 'game-changing', 'unmatched', 'world-class'];
+    const hits = banned.filter(w => new RegExp(`\\b${w}\\b`, 'i').test(marketing));
+    ec('S02', hits.length === 0, `hype words in README/site: ${hits.join(',') || 'none'}`);
+  }
+  // EC-S03 (Self-Governing — claims trace to proof) — every manifest claim is in the docs AND its EC is green
+  {
+    const manifest = read(join(SPEC, 'site-claims.md'));
+    const entries = [...manifest.matchAll(/"([^"]+)"\s*->\s*(EC-[A-Z]?\d+)/g)].map(m => ({ claim: m[1], ec: m[2] }));
+    const missingClaim = entries.filter(e => !marketing.toLowerCase().includes(e.claim.toLowerCase())).map(e => e.claim);
+    const notGreen = entries.filter(e => !ecGreen(e.ec)).map(e => e.ec);
+    ec('S03', entries.length > 0 && missingClaim.length === 0 && notGreen.length === 0,
+      `${entries.length} claims; not-in-docs: ${missingClaim.join('|') || 'none'}; backing EC not green: ${notGreen.join(',') || 'none'}`);
+  }
+  // EC-S04 (Accuracy) — routes bidirectionally consistent between code and README/site
+  {
+    const ep = read('src/main/java/com/example/api/MemoryEndpoint.java');
+    const codeRoutes = [...ep.matchAll(/@(?:Get|Post|Put|Delete)\("([^"]+)"\)/g)].map(m => m[1]);
+    const docRoutes = [...new Set([...marketing.matchAll(/\/api\/([a-z]+)/gi)].map(m => '/' + m[1].toLowerCase()))];
+    const undoc = codeRoutes.filter(r => !new RegExp(r.replace(/\//g, '\\/') + '\\b', 'i').test(marketing));
+    const phantom = docRoutes.filter(r => !codeRoutes.some(c => c.toLowerCase() === r));
+    ec('S04', undoc.length === 0 && phantom.length === 0,
+      `${codeRoutes.length} code routes; undocumented: ${undoc.join(',') || 'none'}; doc routes not in code: ${phantom.join(',') || 'none'}`);
+  }
+  // EC-S05 (For Every Team — SDD) — method credited with a resolvable Akka Specify link
+  {
+    const sdd = /spec-driven development/i.test(marketing);
+    const link = /doc\.akka\.io\/sdk\/spec-driven-development\.html/.test(marketing);
+    ec('S05', sdd && link, `spec-driven named=${sdd}; akka specify link=${link}`);
+  }
+  // EC-S06 (Never Fail — portability) — site/ is self-contained (no external asset fetch)
+  {
+    const ext = [...siteText.matchAll(/<(?:script|link|img)\b[^>]*?(?:src|href)\s*=\s*["'](https?:\/\/[^"']+)["']/gi)].map(m => m[1]);
+    ec('S06', siteFiles.length > 0 && ext.length === 0, `site html files: ${siteFiles.length}; external asset refs: ${ext.join(',') || 'none'}`);
+  }
+  // EC-S07 (Platform Integration — one coherent story) — load-bearing framing present in BOTH README and site
+  {
+    const canon = ['A provenanced fact store with a declarative conflict-resolution layer',
+      'layer-precedence', 'source-priority', 'confidence', 'recency',
+      'Provenance', 'Never blocks', 'Deletion is scoped', 'Declarative policy', 'Runs without keys'];
+    const missReadme = canon.filter(c => !readme.toLowerCase().includes(c.toLowerCase()));
+    const missSite = canon.filter(c => !siteText.toLowerCase().includes(c.toLowerCase()));
+    ec('S07', missReadme.length === 0 && missSite.length === 0,
+      `missing in README: ${missReadme.join('|') || 'none'}; missing in site: ${missSite.join('|') || 'none'}`);
+  }
+  // EC-S08 (Never Fail — honesty) — no status/maturity overclaim
+  {
+    const over = ['production-ready', 'generally available', 'battle-tested', 'enterprise-grade', '\\bGA\\b'];
+    const hits = over.filter(w => new RegExp(w, 'i').test(marketing));
+    ec('S08', hits.length === 0, `status overclaims in README/site: ${hits.join(',').replace(/\\b/g, '') || 'none'}`);
+  }
+  // EC-S09 (Self-Governing — governance/compliance) — third-party licensing stated
+  {
+    const terms = [/Business Source License|\bBSL\b/i, /Eclipse Public License|\bEPL\b/i, /Jlama/i];
+    const missing = terms.filter(re => !re.test(marketing)).length;
+    ec('S09', missing === 0, `licensing terms stated (BSL/EPL/Jlama); missing: ${missing}`);
+  }
+}
+
 // EC-D12 — no nagging footnotes: CONFORMANCE.md is free of perpetual-hedge language (self-referential, deterministic)
 {
   // Scan CONFORMANCE.md EXCEPT the EC-D12 block itself (which must name the banned phrases to define them).

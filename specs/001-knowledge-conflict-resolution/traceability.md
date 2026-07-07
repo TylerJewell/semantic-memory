@@ -65,3 +65,10 @@ EC-032 EC-033 EC-040 EC-041 EC-042 EC-043 EC-050 EC-051 EC-052 EC-053 EC-054 EC-
 
 Documentation ECs (process/quality — trace to the artifact-integrity goal, not a product FR):
 EC-D01 EC-D02 EC-D03 EC-D04 EC-D05 EC-D06 EC-D07 EC-D08 EC-D09 EC-D10 EC-D11 EC-D12.
+
+Site & README ECs (cover README.md + site/, aligned to Akka principles — akka.ai/llms.txt):
+EC-S01 EC-S02 EC-S03 EC-S04 EC-S05 EC-S06 EC-S07 EC-S08 EC-S09 —
+EC-S01 Transparency About Identity · EC-S02 + EC-S08 Never Fail (tone + honesty) ·
+EC-S03 + EC-S09 Self-Governing (claims-trace + governance) · EC-S04 accuracy ·
+EC-S05 For Every Team (SDD) · EC-S06 Never Fail (portability) ·
+EC-S07 Platform Integration (one coherent story).

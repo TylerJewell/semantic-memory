@@ -456,8 +456,69 @@ EC-D12  No nagging footnotes — every gate is deterministic or closed  (self-re
   status:   GREEN   (conform 2026-07-07T00:25Z — no hedges, all statuses terminal)
 ```
 
+## Site & README conformance (Site) — aligns to Akka principles (akka.ai/llms.txt)
+
+**These gates cover README.md + site/ (the public-facing surface the D-gates do not scan) and hold
+it to Akka's stated principles. All deterministic — no human-signoff, per EC-D12.**
+
+```
+EC-S01  Transparency About Identity — no decommissioned feature presented as current
+  invariant: README.md + site/ describe the current fact store; no /recall, /compare, retrieval-strategy, or HotpotQA claims
+  probe:    grep README + site for decommissioned-as-current terms → 0
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S02  Never Fail (engineering-led tone) — no hype / superlative language
+  invariant: README + site contain no curated hype words (revolutionary, seamless, powerful, effortless, blazing, cutting-edge, game-changing, unmatched, world-class)
+  probe:    grep banned lexicon → 0
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S03  Self-Governing (claims trace to proof) — every marketing claim is backed by a green EC
+  invariant: every claim in site-claims.md appears in README/site AND its mapped EC is GREEN (the manifest is the enumerated load-bearing claim set)
+  probe:    parse site-claims.md; each claim present in docs AND backing EC green
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S04  Accuracy — routes bidirectionally consistent between code and README/site
+  invariant: every /api route in MemoryEndpoint is named in README/site, and every /api route named in the docs exists in code
+  probe:    diff code routes vs doc-mentioned routes both ways → 0
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S05  For Every Team (SDD) — method credited with a resolvable Akka Specify link
+  invariant: README + site name "spec-driven development" and link doc.akka.io/sdk/spec-driven-development.html
+  probe:    assert phrase + link present
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S06  Never Fail (portability) — site/ is self-contained
+  invariant: site/*.html fetch no external assets (no external script/link/img); only in-page anchors may point outward
+  probe:    parse site html for external src/href on script|link|img → 0
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S07  Platform Integration (one coherent story) — README and site do not drift from each other
+  invariant: the load-bearing framing (tagline, cascade order, the 4 property names) is present in BOTH README and site
+  probe:    assert each canonical string present in README AND in site
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S08  Never Fail (honesty) — no status / maturity overclaim
+  invariant: README + site do not claim production-ready / generally available / GA / battle-tested / enterprise-grade
+  probe:    grep overclaim lexicon → 0
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+
+EC-S09  Self-Governing (governance) — third-party licensing stated
+  invariant: README + site state the Akka BSL, Fluree EPL, and Jlama terms
+  probe:    assert BSL/EPL/Jlama all named
+  autonomy: auto
+  status:   GREEN   (conform 2026-07-07T01:00Z)
+```
+
 ## Rollup (maintained by `conform`)
 
-`Phase A: 7/7 · B+F: 7/7 · C+D+E: 14/14 · G: 4/4 · H: 5/5 · Meta: 2/2 · Docs: 12/12 →  51/51 GREEN`
+`Phase A: 7/7 · B+F: 7/7 · C+D+E: 14/14 · G: 4/4 · H: 5/5 · Meta: 2/2 · Docs: 12/12 · Site: 9/9 →  60/60 GREEN`
 
-_2026-07-07: 51/51 GREEN. D02/D08/D10 made deterministic; EC-D12 forbids hedge language + non-terminal status. No standing footnotes. Receipts: `conformance/history.jsonl`._
+_2026-07-07: 60/60 GREEN. Added Site & README ECs (S01-S09) aligning README+site to Akka principles (akka.ai/llms.txt). Receipts: `conformance/history.jsonl`._
