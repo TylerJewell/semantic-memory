@@ -1,0 +1,125 @@
+<svg viewBox="0 0 880 860" xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-labelledby="arch-title arch-desc">
+  <title id="arch-title">semantic-memory architecture</title>
+  <desc id="arch-desc">Ingest, storage, and retrieval. The only AI language-model call is graph
+    extraction during prose ingest; embeddings are built but dormant; all storage queries and
+    conflict resolution are deterministic, fact-based, with no AI at query time.</desc>
+  <style>
+    svg { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          --fg:#1a1a1a; --muted:#5a5a5a; --line:#cfcfcf; --box:#f6f6f4; --store:#eef1f4;
+          --llm:#b45309; --llmbg:#fdf1e2; --emb:#b45309; --edge:#8a8a8a; }
+    @media (prefers-color-scheme: dark) {
+      svg { --fg:#e6e6e6; --muted:#9a9a9a; --line:#3a3a3a; --box:#181818; --store:#141a20;
+            --llm:#f59e0b; --llmbg:#2a1f10; --emb:#f59e0b; --edge:#888; }
+    }
+    .hdr  { fill:var(--muted); font-size:11px; letter-spacing:1.5px; }
+    .lbl  { fill:var(--fg); font-size:13px; }
+    .sub  { fill:var(--muted); font-size:11px; }
+    .mono { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; fill:var(--fg); }
+    .tag  { font-size:10px; letter-spacing:.5px; }
+    .box  { fill:var(--box); stroke:var(--line); stroke-width:1; }
+    .llmbox { fill:var(--llmbg); stroke:var(--llm); stroke-width:1.5; }
+    .store{ fill:var(--store); stroke:var(--line); stroke-width:1; }
+    .edge { stroke:var(--edge); stroke-width:1.4; fill:none; marker-end:url(#a); }
+    .bar  { stroke:var(--edge); stroke-width:1.4; fill:none; }
+    .llmt { fill:var(--llm); }
+    .embt { fill:var(--emb); opacity:.7; }
+    .fact { fill:var(--muted); }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--edge)"/>
+    </marker>
+  </defs>
+
+  <!-- legend -->
+  <rect x="40" y="12" width="15" height="11" class="llmbox"/>
+  <text x="61" y="22" class="sub"><tspan class="llmt" font-weight="600">LLM</tspan> — AI language model</text>
+  <rect x="255" y="12" width="15" height="11" fill="none" stroke="var(--emb)" stroke-dasharray="4 3" stroke-opacity=".6"/>
+  <text x="276" y="22" class="sub"><tspan class="embt" font-weight="600">EMB</tspan> — AI embeddings (dormant)</text>
+  <rect x="520" y="12" width="15" height="11" class="box"/>
+  <text x="541" y="22" class="sub"><tspan class="fact" font-weight="600">FACT</tspan> — deterministic, no AI</text>
+
+  <!-- INGEST -->
+  <text x="40" y="56" class="hdr">INGEST</text>
+  <text x="220" y="80" text-anchor="middle" class="mono">prose &#8594; POST /remember</text>
+  <text x="660" y="80" text-anchor="middle" class="mono">files &#8594; POST /sync</text>
+
+  <rect x="70" y="92" width="300" height="74" rx="6" class="llmbox"/>
+  <text x="220" y="120" text-anchor="middle" class="lbl">GraphExtractor</text>
+  <text x="220" y="139" text-anchor="middle" class="sub">prose &#8594; triples (repair + parse)</text>
+  <text x="356" y="109" text-anchor="end" class="tag llmt" font-weight="600">LLM</text>
+
+  <rect x="510" y="92" width="300" height="74" rx="6" class="box"/>
+  <text x="660" y="116" text-anchor="middle" class="lbl">SourceLayerResolver · VaultSync</text>
+  <text x="660" y="135" text-anchor="middle" class="sub">path &#8594; layer · overlap 409 · vault-leak 422</text>
+  <text x="796" y="109" text-anchor="end" class="tag fact" font-weight="600">FACT</text>
+
+  <path class="bar" d="M220 166 L220 192 L436 192"/>
+  <path class="bar" d="M660 166 L660 192 L444 192"/>
+  <path class="edge" d="M440 192 L440 206"/>
+
+  <rect x="250" y="208" width="380" height="66" rx="6" class="box"/>
+  <text x="440" y="232" text-anchor="middle" class="lbl">EntityResolver</text>
+  <text x="440" y="251" text-anchor="middle" class="sub">alias-aware  (Acme = "Acme Corp")</text>
+  <text x="616" y="225" text-anchor="end" class="tag fact" font-weight="600">FACT</text>
+  <text x="616" y="266" text-anchor="end" class="tag embt" font-weight="600">EMB dormant</text>
+
+  <path class="edge" d="M440 274 L440 300"/>
+
+  <rect x="250" y="302" width="380" height="60" rx="6" class="box"/>
+  <text x="440" y="326" text-anchor="middle" class="lbl">IngestGate</text>
+  <text x="440" y="345" text-anchor="middle" class="sub">new · corroborating · conflicting · suppressed — never blocks</text>
+  <text x="616" y="319" text-anchor="end" class="tag fact" font-weight="600">FACT</text>
+
+  <path class="edge" d="M440 362 L440 404"/>
+  <text x="452" y="386" class="sub">insertAssertion</text>
+
+  <!-- STORAGE -->
+  <text x="40" y="398" class="hdr">STORAGE — Fluree</text>
+  <rect x="40" y="406" width="800" height="92" rx="6" class="store"/>
+  <text x="440" y="434" text-anchor="middle" class="mono">ex:Assertion { subject · predicate · object · layer · source · asserted · conf · active }</text>
+  <text x="440" y="456" text-anchor="middle" class="sub">immutable commits = provenance / audit trail</text>
+  <text x="440" y="477" text-anchor="middle" class="sub">vector + BM25 indexes present but unused on the fact path</text>
+
+  <!-- fan-out -->
+  <path class="bar" d="M440 498 L440 520 M142 520 L760 520"/>
+  <path class="edge" d="M142 520 L142 548"/>
+  <path class="edge" d="M362 520 L362 548"/>
+  <path class="edge" d="M575 520 L575 548"/>
+  <path class="edge" d="M760 520 L760 548"/>
+
+  <!-- RETRIEVAL -->
+  <text x="40" y="536" class="hdr">RETRIEVAL — all fact-based, no AI</text>
+
+  <rect x="50" y="550" width="184" height="60" rx="6" class="box"/>
+  <text x="142" y="574" text-anchor="middle" class="mono">GET /fact</text>
+  <text x="142" y="592" text-anchor="middle" class="sub">served value + provenance</text>
+
+  <rect x="254" y="550" width="216" height="60" rx="6" class="box"/>
+  <text x="362" y="574" text-anchor="middle" class="mono">GET /disagreements</text>
+  <text x="362" y="592" text-anchor="middle" class="sub">authored served · derived flagged</text>
+
+  <rect x="490" y="550" width="170" height="60" rx="6" class="box"/>
+  <text x="575" y="574" text-anchor="middle" class="mono">GET /conflicts</text>
+  <text x="575" y="592" text-anchor="middle" class="sub">unresolved ties &#8594; human</text>
+
+  <rect x="680" y="550" width="160" height="60" rx="6" class="box"/>
+  <text x="760" y="574" text-anchor="middle" class="mono">GET /stats · /recent</text>
+  <text x="760" y="592" text-anchor="middle" class="sub">counts · recency</text>
+
+  <!-- converge to cascade -->
+  <path class="bar" d="M142 610 L142 624 M362 610 L362 624 M575 610 L575 624 M760 610 L760 624 M142 624 L760 624"/>
+  <path class="edge" d="M440 624 L440 630"/>
+
+  <rect x="250" y="632" width="380" height="56" rx="6" class="box"/>
+  <text x="440" y="656" text-anchor="middle" class="lbl">ResolutionCascade · Reconciler</text>
+  <text x="440" y="675" text-anchor="middle" class="sub">layer &#8594; source &#8594; confidence &#8594; recency</text>
+
+  <!-- MODEL SEAM -->
+  <text x="40" y="722" class="hdr">MODEL SEAM (key-gated · EC-006)</text>
+  <rect x="40" y="730" width="800" height="106" rx="6" class="box"/>
+  <text x="60" y="757" class="lbl">no <tspan class="mono">GOOGLE_AI_GEMINI_API_KEY</tspan>  &#8594;  Jlama (in-JVM, no network)   <tspan class="embt">[+ LocalOnnx embeddings · dormant]</tspan></text>
+  <text x="60" y="781" class="lbl">key present  &#8594;  Gemini (hosted)   <tspan class="embt">[+ Gemini embeddings · dormant]</tspan></text>
+  <text x="60" y="812" class="sub">Used at exactly one place: <tspan class="llmt" font-weight="600">GraphExtractor (LLM)</tspan> during /remember ingest — the system's only query-path-adjacent AI call.</text>
+</svg>

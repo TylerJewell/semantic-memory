@@ -111,6 +111,15 @@ GET /conflicts       ties the system will not resolve on its own</pre>
     network is required on the ingest path. Supply a hosted-model key to use one instead.</li>
   </ul>
 
+  <h2>Architecture</h2>
+  <p>Two ingest paths land the same primitive in one store; every read is deterministic. The only
+  AI language-model call is graph extraction during prose ingest. Embeddings are built but not
+  wired into the live path. Everything at query time is fact-based.</p>
+  <p><img src="architecture.svg" alt="Architecture diagram: prose (/remember) and files (/sync)
+  ingest into provenanced assertions in Fluree; GET /fact, /disagreements, and /conflicts read them
+  through a deterministic resolution cascade. The only AI language-model call is graph extraction at
+  ingest; embeddings are dormant; all retrieval is fact-based." style="width:100%;height:auto;border:1px solid var(--line);border-radius:6px;"></p>
+
   <h2>How it was built</h2>
   <p>Built with <a href="https://doc.akka.io/sdk/spec-driven-development.html">Akka Specify</a>
   and Fluree, using loop-driven engineering and spec-driven development. Requirements were
