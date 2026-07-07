@@ -112,13 +112,15 @@ GET /conflicts       ties the system will not resolve on its own</pre>
   </ul>
 
   <h2>Architecture</h2>
-  <p>Two ingest paths land the same primitive in one store; every read is deterministic. The only
-  AI language-model call is graph extraction during prose ingest. Embeddings are built but not
-  wired into the live path. Everything at query time is fact-based.</p>
-  <p><img src="architecture.svg" alt="Architecture diagram: prose (/remember) and files (/sync)
-  ingest into provenanced assertions in Fluree; GET /fact, /disagreements, and /conflicts read them
-  through a deterministic resolution cascade. The only AI language-model call is graph extraction at
-  ingest; embeddings are dormant; all retrieval is fact-based." style="width:100%;height:auto;border:1px solid var(--line);border-radius:6px;"></p>
+  <p>Two kinds of input. Facts you state in curated files are kept exactly as written, with no AI —
+  authored and fully trusted. Documents are read by AI, which extracts facts from them — derived and
+  lower trust. Both become labeled facts in one store, and when they disagree, stated facts win over
+  extracted ones. Reading facts back is exact and rule-based, with no AI.</p>
+  <p><img src="architecture.svg" alt="Architecture diagram of two input lanes: curated files are
+  kept as stated with no AI (authored, fully trusted); documents (typed text or files) are read by AI
+  to extract facts (derived, lower trust). Both become labeled facts in one store. GET /fact,
+  /disagreements, and /conflicts read them back with no AI, and stated facts win over extracted ones
+  when they disagree." style="width:100%;height:auto;border:1px solid var(--line);border-radius:6px;"></p>
 
   <h2>How it was built</h2>
   <p>Built with <a href="https://doc.akka.io/sdk/spec-driven-development.html">Akka Specify</a>
