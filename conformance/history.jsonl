@@ -32,3 +32,6 @@
 {"run_id":"20260707T002000Z","git_sha":"1a06b46","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T00:20:00Z","scope":"docs+meta build-tier","ec_green":15,"ec_red":2,"reds":["EC-D08","EC-D12"]}
 {"run_id":"20260707T002500Z","git_sha":"1a06b46","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T00:25:00Z","scope":"docs+meta build-tier","ec_green":17,"ec_red":0,"reds":[]}
 {"run_id":"20260707T002600Z","git_sha":"1a06b46","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T00:26:00Z","scope":"docs+meta build-tier","ec_green":17,"ec_red":0,"reds":[]}
+{"run_id":"20260707T010000Z","git_sha":"b2afb9b","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T01:00:00Z","scope":"docs+meta build-tier","ec_green":26,"ec_red":0,"reds":[]}
+{"run_id":"20260707T010500Z","git_sha":"b2afb9b","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T01:05:00Z","scope":"docs+meta build-tier","ec_green":25,"ec_red":1,"reds":["EC-D06"]}
+{"run_id":"20260707T011000Z","git_sha":"b2afb9b","branch":"main","model":"claude-opus-4-8","runner":"conform.mjs@0.1","timestamp":"2026-07-07T01:10:00Z","scope":"docs+meta build-tier","ec_green":26,"ec_red":0,"reds":[]}
